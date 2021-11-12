@@ -3,3 +3,9 @@
 .Rdata
 .httr-oauth
 .DS_Store
+.Ruserdata
+Figures
+Results
+README.Rmd
+environment
+Data
