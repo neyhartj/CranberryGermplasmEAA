@@ -38,9 +38,6 @@ load(file.path(result_dir, "population_genetics_stats.RData"))
 
 
 
-# Read in the germplasm metadata
-germ_meta <- mutate(germ_meta, source = "rutgers")
-
 # Read in the GRIN germplasm metadata
 grin_germ_meta <- read_excel(path = file.path(cran_dir, "Breeding/Germplasm/GRINGermplasm/Vm_GRIN_search_20210329.xlsx")) %>%
   select(-starts_with("..."), -IMAGE) %>%
@@ -200,9 +197,12 @@ pc_plot1 <- pca_plot_df %>%
 ggsave(filename = "snp_pca_wild_germplasm1.jpg", plot = pc_plot1, path = fig_dir, width = 5, height = 4, dpi = 1000)
 
 
+###
+
 # Modify the fitted LD values
 ld_wild_decay1 <- unnest(ld_wild_decay, predictions)
 ld_wild_df1 <- ld_wild_df %>%
+  rename(d = bp_dist) %>%
   filter(d <= max(ld_wild_decay1$d))
 
 ## Plot LD decay
@@ -230,6 +230,7 @@ ggsave(filename = "ld_decay_all_chrom_1000kbp.jpg", plot = g_ld_decay_all_chrom1
 ld_wild_decay2 <- unnest(ld_wild_decay, predictions) %>%
   filter(d <= 2e5)
 ld_wild_df2 <- ld_wild_df %>%
+  rename(d = bp_dist) %>%
   filter(d <= 2e5)
 
 
@@ -293,10 +294,29 @@ ggsave(filename = "ld_decay_combined_chrom1.jpg", plot = combined_ld_plot, path 
 # Combine pop structure with LD
 g_popstr_ld <- plot_grid(pc_plot, combined_ld_plot, ncol = 1, labels = subfigure_labels[1:2],
                          label_size = 9)
-# Save
-ggsave(filename = "figure2_popstr_chrom1_ld.tiff", plot = g_popstr_ld, path = fig_dir,
-       width = 3.5, height = 6, dpi = 1000)
 
+
+
+
+
+
+# Code for other results described in the paper ---------------------------
+
+## Number of individuals per location
+aggregate(individual ~ location_abbr, data = germ_meta, FUN = n_distinct) %>%
+  arrange(individual)
+
+
+
+# Summarize within-location pairwise distances
+pairwise_dist_data %>%
+  filter(location1 == location2) %>%
+  group_by(location1) %>%
+  summarize(mean_dist = mean(distance), min_dist = min(distance), max_dist = max(distance),
+            range_dist = max_dist - min_dist) %>%
+  left_join(., aggregate(individual ~ location_abbr, data = germ_meta, FUN = n_distinct), by = c("location1" = "location_abbr")) %>%
+  arrange(desc(mean_dist)) %>%
+  mutate(mean_similarity = 1 - mean_dist)
 
 
 

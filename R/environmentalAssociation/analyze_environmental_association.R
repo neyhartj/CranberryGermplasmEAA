@@ -39,26 +39,7 @@ germ_meta <- germ_meta %>%
   left_join(., select(eaa_environmental_data, origin_name, location_abbr)) %>%
   # Get the state/province name from the location
   mutate(state = str_sub(string = location_abbr, start = -2, end = -1))
-# Read in the GRIN germplasm metadata
-grin_germ_meta <- read_excel(path = file.path(cran_dir, "Breeding/Germplasm/GRINGermplasm/Vm_GRIN_search_20210329.xlsx")) %>%
-  select(-starts_with("..."), -IMAGE) %>%
-  rename_all(~str_replace_all(tolower(.), " ", "_")) %>%
-  # Parse lat/long
-  separate(coordinates, c("latitude", "longitude"), sep = ", ") %>%
-  mutate_if(is.character, parse_guess) %>%
-  # Sanity check for coordinates
-  mutate(longitude = ifelse(sign(longitude) == 1, -1 * longitude, longitude)) %>%
-  mutate_at(vars(source_type, improvement_status), tolower) %>%
-  mutate(accession = str_replace_all(accession, " ", "-"),
-         source = "grin-ncgr")
 
-# Combine germplasm information
-germplasm_info_combined <- germ_meta %>%
-  select(accession = formatted_name, variety_designation, category, latitude = origin_latitude,
-         longitude = origin_longitude, origin = origin_name) %>%
-  mutate(individual = accession) %>%
-  bind_rows(., select(grin_germ_meta, accession, individual = name, origin,
-                      category = improvement_status, latitude, longitude, availability))
 
 # Read in variety origin information
 native_sel_meta <- read_csv(file = file.path(data_dir, "native_selection_metadata.csv")) %>%
@@ -262,7 +243,12 @@ eaa_gwas_manhattan_plot_df <- eaa_gwas_manhattan_plot_df %>%
 # Extract the significant markers from the multi-locus mixed model output
 egwas_sigmar <- eaa_gwas_best_model_signif_marker %>%
   unnest(sigmar) %>%
-  mutate(class = "egwas_sigmar")
+  mutate(class = "egwas_sigmar") %>% filter(! variable %in% c("elevation", "latitude", "longitude", "EC1", "EC2", "EC3"))
+
+# Number of markers per variable
+xtabs(~ variable, egwas_sigmar) %>%
+  sort()
+
 
 # Number of unique markers
 egwas_sigmar_unique <- egwas_sigmar %>%
@@ -523,7 +509,7 @@ for (i in seq_len(nrow(sigmar_summary))) {
 
 
 
-# Compare eGWAS results with Sambada and SPA --------------------------------------
+# Compare eGWAS results with SPA --------------------------------------
 
 # Read in the SPA results
 spa_results <- spa_out
@@ -572,11 +558,6 @@ random_snps_spa <- replicate(n = 10000, mean(sample(x = spa_out_nogwas_vec, size
 
 # P-value for the GWAS SNPs SPA score
 mean(random_snps_spa >= gwas_mean_spa)
-
-
-
-
-
 
 
 
@@ -750,19 +731,75 @@ xtabs(~ chrom, snp_info, subset = marker %in% all_assoc$term)
 
 
 
+# Look for gene annotations ------------------------------------------------
+
+# read in the GFF file
+cranberry_gff <- ape::read.gff(file = file.path(data_dir, "Vaccinium_macrocarpon_BenLear_v2_annotations.gff"))
+
+
+## Look for gene annotations near the significant markers
+
+# What bp distance should we use?
+bp <- 17000 # Use 17000; this is the bp at which LD decays to 0.2
+
+# Iterate over the signficant markers
+egwas_sigmar_nearby_annotation <- egwas_sigmar %>%
+  group_by(variable, marker) %>%
+  do(nearby_annotation = {
+    row <- .
+
+    # Get the marker location
+    snp_info_i <- subset(snp_info, marker == row$marker)
+
+    # Filter the GFF for annotations near the marker
+    sigmar_nearby_ann <- cranberry_gff %>%
+      filter(seqid == as.numeric(snp_info_i$chrom)) %>%
+      filter(start >= snp_info_i$pos - bp,
+             end <= snp_info_i$pos + bp) %>%
+      as_tibble() %>%
+      mutate_at(vars(start, end), list(distance = ~abs(. - snp_info_i$pos))) %>%
+      # Parse out the attributes
+      mutate(attributes = str_split(attributes, ";"),
+             attributes = map(attributes, ~{
+               splt <- str_split(.x, "=")
+               as_tibble(setNames(map(splt, 2), map_chr(splt, 1)))
+             })) %>%
+      select(type, contains("start"), contains("end"), score:attributes) %>%
+      arrange(start_distance)
+
+    sigmar_nearby_ann
+
+  }) %>% ungroup()
+
+# How many nearby genes?
+egwas_sigmar_nearby_annotation1 <- egwas_sigmar_nearby_annotation %>%
+  mutate(nGenes = map_dbl(nearby_annotation, ~nrow(subset(.x, type == "gene"))),
+         closest_gene_dist = map_dbl(nearby_annotation, ~subset(.x, type == "gene", start_distance, drop = T)[1]))
 
 
 
+# How close is each SNP marker to its nearest gene?
+all_marker_gene_distance <- snp_info %>%
+  filter(marker %in% colnames(geno_mat_wild)) %>%
+  mutate(chrom = parse_number(chrom)) %>%
+  # head(250) %>%
+  group_by(marker) %>%
+  do({
+    row <- .
+    subset(cranberry_gff, seqid == row$chrom & type == "gene") %>%
+      mutate_at(vars(start, end), list(distance = ~abs(.x - row$pos))) %>%
+      mutate(min_distance = pmin(start_distance, end_distance)) %>%
+      top_n(x = ., n = 1, wt = -min_distance) %>%
+      select(min_distance)
+
+  }) %>% ungroup()
 
 
+egwas_sigmar_nearby_annotation1
 
 
-
-
-
-
-
-
+# Save the annotation data
+save("egwas_sigmar_nearby_annotation1", file = file.path(result_dir, "egwas_sigmar_gene_annotations.RData"))
 
 
 

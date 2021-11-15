@@ -43,22 +43,51 @@ snp_info1 <- snp_info %>%
   as.data.frame()
 
 
-# Calculate LD decay for each population
-ld_wild <- LD.decay(markers = geno_mat_wild, map = snp_info1)
+# Split by chromosome and create a list of SnpMatrix objects
+ld_wild <- snp_info1 %>%
+  split(.$LG) %>%
+  map(~{
+    # Subset markers from this chrom; create a snpMatrix object
+    markers <- .x$Locus
+    snpMat <- as(geno_mat_wild[,markers, drop = FALSE] + 1, "SnpMatrix")
+    # Physical distances
+    bp_dist <- .x$Position
+
+    # Calculate LD
+    ld_D <- LDheatmap(gdat = snpMat, genetic.distances = bp_dist, distances = "physical", LDmeasure = "D",
+                      add.map = FALSE, flip = TRUE)
+    # Calculate LD
+    ld_r <- LDheatmap(gdat = snpMat, genetic.distances = bp_dist, distances = "physical", LDmeasure = "r",
+                      add.map = FALSE, flip = TRUE)
+
+    # Return a tidy version of the distance matrix
+    ld_df1 <- t(ld_D$LDmatrix) %>%
+      as.dist() %>%
+      broom::tidy() %>%
+      rename(marker1 = item1, marker2 = item2, D = distance) %>%
+      left_join(., select(snp_info1, Locus, Position), by = c("marker1" = "Locus")) %>%
+      left_join(., select(snp_info1, Locus, Position), by = c("marker2" = "Locus")) %>%
+      mutate(bp_dist = abs(Position.x - Position.y)) %>%
+      select(marker1, marker2, bp_dist, D)
+
+    # Return a tidy version of the distance matrix
+    t(ld_r$LDmatrix) %>%
+      as.dist() %>%
+      broom::tidy() %>%
+      rename(marker1 = item1, marker2 = item2, r2 = distance) %>%
+      left_join(ld_df1, ., by = c("marker1", "marker2"))
+
+  })
+
+
 # Combine
-ld_wild_df <- ld_wild$all.LG %>%
-  rownames_to_column("id") %>%
-  mutate(id = str_split(id, "\\."), LG = map_chr(id, 1)) %>%
-  as_tibble() %>%
-  filter(LG %in% unique(snp_info1$LG))
+ld_wild_df <- imap_dfr(ld_wild, ~mutate(.x, LG = .y))
 
-
-# plot(r2 ~ d, data = ld_wild_df, subset = LG == "01")
 
 # Plot
 g_ld_wild <- ld_wild_df %>%
   filter(LG == "08") %>%
-  ggplot(aes(x = d, y = r2)) +
+  ggplot(aes(x = bp_dist, y = r2)) +
   geom_point(size = 0.5) +
   facet_wrap(~ LG) +
   theme_classic()
@@ -88,7 +117,9 @@ ld_wild_decay <- ld_wild_df %>%
   do({
     df <- .
     ld <- df$r2
-    d <- df$d
+    # ld <- df$D
+    d <- df$bp_dist
+
     # Calculate recombination fraction (Mb * (cM/Mb)) / 100 cM;
     # Use this same formula in the model for r
     r <- (((d / 1e6) * recomb_rate) / 100)
@@ -102,6 +133,10 @@ ld_wild_decay <- ld_wild_df %>%
     xvals <- seq(0, 1e6, 500)
     yhat <- predict(object = ld_decay_model, list(d = xvals))
     predictions <- tibble(d = xvals, d_kbp = xvals / 1000,  yhat = yhat)
+
+    # ## plot?
+    # plot(ld ~ d)
+    # points()
 
     model_summary <- summary(ld_decay_model)
     dlow <- model_summary$parameters["dlow", "Estimate"]
@@ -128,20 +163,32 @@ ld_wild_decay <- ld_wild_df %>%
 
   }) %>% ungroup()
 
+ld_wild_decay
+
 # Mean and range half-life
 ld_wild_decay %>%
   summarize(mean_half_life = mean(half_bp), min_half_life = min(half_bp), max_half_life = max(half_bp))
 
-# When does LD fall below 0.3, 0.1?
+# # A tibble: 1 x 3
+# mean_half_life min_half_life max_half_life
+# 1         21997.         8996.        40233
+
+
+# When does LD fall below 0.3, 0.2, 0.1?
 ld_wild_decay %>%
   select(LG, predictions) %>%
-  crossing(., ld_threshold = c(0.3, 0.1)) %>%
+  crossing(., ld_threshold = c(0.3, 0.2, 0.1)) %>%
   unnest(predictions) %>%
   filter(yhat < ld_threshold) %>%
   group_by(LG, ld_threshold) %>%
   top_n(x = ., n = 1, wt = -d) %>%
   group_by(ld_threshold) %>%
   summarize(mean_d = mean(d), min_d = min(d), max_d = max(d))
+
+# ld_threshold mean_d min_d max_d
+# 1          0.1  39625 17000 63000
+# 2          0.2  16500  7500 23500
+# 3          0.3   3875     0  8000
 
 
 
@@ -173,6 +220,27 @@ pairwise_dist_data <- pairwise_dist_df1
 
 
 
+
+
+# Calculate the number of segregating sites per population ------------------
+
+# Split individuals by population
+indiv_per_pop <- germ_meta1 %>%
+  filter(individual %in% rownames(geno_mat_wild)) %>%
+  split(.$location_abbr) %>%
+  map("individual")
+
+pop_seg_sites <- indiv_per_pop %>%
+  imap_dfr(~{
+    mat1 <- geno_mat_wild[.x,, drop = FALSE]
+    ref_allele_freq <- colMeans(mat1 + 1) / 2
+    tibble(location_abbr = .y, nSegSites = sum(ref_allele_freq < 1 & ref_allele_freq > 0)) %>%
+      mutate(propSegsites = nSegSites / ncol(mat1), popSize = nrow(mat1))
+  })
+
+
+
+
 # Run SPA -----------------------------------------------------------------
 
 # Run the run_SPA.sh script from R
@@ -187,6 +255,11 @@ system('bash -c "sh R/popGenStats/run_spa.sh /"')
 spa_out <- read_tsv(file.path(result_dir, "wild_cranberry_knownGeo_spa.out"),
                     col_names = c("chrom", "marker", "cM", "pos", "ref_allele", "alt_allele", "slope_a", "slope_b",
                                   "slope_c", "spa_score"))
+
+
+
+
+
 
 
 
@@ -240,6 +313,10 @@ marker_fst_wild_native %>%
 marker_fst_wild_native %>%
   filter(Fstp >= fst_cutoff) %>%
   arrange(desc(Fstp))
+
+
+
+
 
 
 
