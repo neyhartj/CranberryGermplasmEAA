@@ -163,7 +163,7 @@ gwas_out <- egwas_models_df %>%
       mutate(unif_score = qqscore(score)) %>%
       select(marker, chrom, pos, model, variable, score, p_value, unif_score)
 
-    left_join(.x, .x2)
+    left_join(.x, .x2, by = c("model", "marker", "chrom", "pos", "variable", "score", "p_value")
   })
 
 # P-value inflation factor
@@ -193,7 +193,7 @@ qq_plots <- gwas_out %>%
 
 # Save
 ggsave(filename = "egwas_qqplots.jpg", plot = qq_plots, path = fig_dir,
-       height = 12, width = 10, dpi = 1000)
+       height = 25, width = 10, dpi = 100)
 
 
 #

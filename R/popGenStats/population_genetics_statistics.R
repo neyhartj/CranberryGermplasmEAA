@@ -259,60 +259,65 @@ spa_out <- read_tsv(file.path(result_dir, "wild_cranberry_knownGeo_spa.out"),
 
 
 
-
-
-
-
-# Calculate Fst between wild and native -----------------------------------
+# Calculate Fst among all wild individuals --------------------------------
 
 # Create a data.frame to store the results
-marker_fst_wild_native <- geno_hmp_wild %>%
+marker_fst <- geno_hmp_wild %>%
   select(marker, chrom, pos) %>%
-  mutate(fst_wild_native = as.numeric(NA))
+  mutate(fst = as.numeric(NA))
 
-# Create a df specifying population
-pop_df <- data.frame(individual = row.names(geno_mat_unfiltered), stringsAsFactors = FALSE) %>%
-  mutate(pop = ifelse(individual %in% row.names(geno_mat_wild), 0, 1)) %>%
-  mutate(pop = ifelse(pop == 0, "wild", "native")) %>%
-  column_to_rownames("individual")
+# DF with population indicators
+pop_df <- germ_meta %>%
+  filter(individual %in% row.names(geno_mat_wild)) %>%
+  select(individual, population = origin_name)
 
 # Format the data at once
-geno_mat_wild_native_hierfFormat <- apply(X = geno_mat_wild_native + 1, MARGIN = 2, FUN = function(snp) {
+geno_mat_wild_hierfFormat <- apply(X = geno_mat_wild + 1, MARGIN = 2, FUN = function(snp) {
   as.numeric(str_replace_all(snp, c("2" = "22", "1" = "12", "0" = "11")))
 })
-row.names(geno_mat_wild_native_hierfFormat) <- row.names(geno_mat_wild_native)
+row.names(geno_mat_wild_hierfFormat) <- row.names(geno_mat_wild)
 
 # Combine pop_df and geno_mat_wild_native_hierfFormat
-data_for_fstat <- cbind(pop_df, as.data.frame(geno_mat_wild_native_hierfFormat))
+data_for_fstat <- cbind(pop_df, as.data.frame(geno_mat_wild_hierfFormat)) %>%
+  remove_rownames() %>%
+  column_to_rownames("individual")
 
 # Calculate basic stats
-basic_stats_out <- basic.stats(data = data_for_fstat)
+basic_stats_out <- basic.stats(data = data_for_fstat, diploid = TRUE)
 
+# Use the Weir and Cockeram Fst estimate
+wc_fst <- wc(ndat = data_for_fstat, diploid = TRUE)
 
 # Create a summary data.frame per locus
-marker_fst_wild_native <- geno_hmp_wild %>%
+marker_fst_wild <- geno_hmp_wild %>%
   select(marker, chrom, pos) %>%
-  left_join(., basic_stats_out$perloc %>% as.data.frame() %>% rownames_to_column("marker"))
+  # left_join(., basic_stats_out$perloc %>% as.data.frame() %>% rownames_to_column("marker"))
+  left_join(., rownames_to_column(wc_fst$per.loc, "marker") %>% rename(Fst = FST, Fis = FIS))
 
 # What is the 99% percentile of Fst values?
-fst_cutoff <- quantile(x = marker_fst_wild_native$Fstp, probs = 0.999)
+fst_cutoff <- quantile(x = marker_fst_wild$Fst, probs = 0.999)
+
 
 # Plot
-marker_fst_wild_native %>%
+g_fst <- marker_fst_wild %>%
   mutate(chrom = parse_number(chrom), even_chrom = chrom %% 2 == 0) %>%
-  ggplot(aes(x = pos / 1e6, y = Fstp, color = even_chrom)) +
+  ggplot(aes(x = pos, y = Fst, color = even_chrom)) +
   geom_hline(yintercept = fst_cutoff, lty = 2) +
   geom_point() +
   scale_color_discrete(guide = FALSE) +
+  scale_x_continuous() +
   facet_grid(~ chrom, scales = "free_x", switch = "x") +
   theme_classic() +
   theme(panel.spacing.x = unit(0, "line"))
 
+# Plotly
+# plotly::ggplotly(g_fst)
+
 
 # List SNPs that exceed the empirical threshold
-marker_fst_wild_native %>%
-  filter(Fstp >= fst_cutoff) %>%
-  arrange(desc(Fstp))
+marker_fst_wild_outlier <- marker_fst_wild %>%
+  filter(Fst >= fst_cutoff) %>%
+  arrange(desc(Fst))
 
 
 
@@ -325,7 +330,7 @@ marker_fst_wild_native %>%
 
 
 # Save the results
-save("marker_fst_wild_native", "spa_out", "ld_wild_decay", "ld_wild_df", "pairwise_dist_data",
+save("marker_fst_wild", "marker_fst_wild_outlier", "spa_out", "ld_wild_decay", "ld_wild_df", "pairwise_dist_data",
      file = file.path(result_dir, "population_genetics_stats.RData"))
 
 

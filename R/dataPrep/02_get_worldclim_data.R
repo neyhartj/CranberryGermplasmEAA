@@ -66,7 +66,21 @@ long_range <- range(location_metadata$longitude, na.rm = TRUE)
 #
 # # This is only to be used once; Use the next command to read in data
 # worldclim_dat <- getData(name = "worldclim", var = "bio", res = "5",
-#                          path = data_dir)
+#                          path = file.path(env_dir, "WorldClim"))
+#
+# # Tmin, tmax, precip
+# worldclim_dat <- getData(name = "worldclim", var = "tmin", res = "5",
+#                          path = file.path(env_dir, "WorldClim"))
+#
+# worldclim_dat <- getData(name = "worldclim", var = "tmean", res = "5",
+#                          path = file.path(env_dir, "WorldClim"))
+#
+# worldclim_dat <- getData(name = "worldclim", var = "tmax", res = "5",
+#                          path = file.path(env_dir, "WorldClim"))
+#
+# worldclim_dat <- getData(name = "worldclim", var = "prec", res = "5",
+#                          path = file.path(env_dir, "WorldClim"))
+
 #
 # download.file(url = "https://biogeo.ucdavis.edu/data/diva/msk_alt/USA_msk_alt.zip",
 #               destfile = file.path(env_dir, "Elevation/USA_msk_alt.zip"))
@@ -88,11 +102,29 @@ alt_data <- raster::merge(x = usa_alt_data[[1]], y = can_alt_data)
 worldclim_dat <- getData(name = "worldclim", download = FALSE, var = "bio", res = "5",
                          path = file.path(env_dir, "WorldClim"))
 
+worldclim_dat_tmin <- getData(name = "worldclim", var = "tmin", res = "5",
+                              path = file.path(env_dir, "WorldClim"))
+
+worldclim_dat_tmean <- getData(name = "worldclim", var = "tmean", res = "5",
+                               path = file.path(env_dir, "WorldClim"))
+
+worldclim_dat_tmax <- getData(name = "worldclim", var = "tmax", res = "5",
+                              path = file.path(env_dir, "WorldClim"))
+
+worldclim_dat_prec <- getData(name = "worldclim", var = "prec", res = "5",
+                              path = file.path(env_dir, "WorldClim"))
+
+
+# Combine all raster stacks
+worldclim_dat1 <- stack(worldclim_dat, worldclim_dat_tmin, worldclim_dat_tmean, worldclim_dat_tmax,
+                        worldclim_dat_prec)
+
+
 # Crop this data
 long_range1 <- range(pretty(long_range))
 lat_range1 <- range(pretty(lat_range))
 extent1 <- extent(list(x = long_range1, y = lat_range1))
-worldclim_dat1 <- crop(x = worldclim_dat, y = extent1)
+worldclim_dat1 <- crop(x = worldclim_dat1, y = extent1)
 alt_data1 <- crop(x = alt_data, y = extent1)
 
 # Names of bioclim variables
@@ -101,12 +133,12 @@ environ_vars <- c(
   latitude = "Latitude",
   longitude = "Longitude",
   bio1 = 'Annual Mean Temperature',
-  bio2 = 'Mean Diurnal Range (Mean of monthly (max temp - min temp))',
-  bio3 = 'Isothermality (bio2/bio7) (* 100)',
-  bio4 = 'Temperature Seasonality (standard deviation *100)',
+  bio2 = 'Mean Diurnal Range',
+  bio3 = 'Isothermality',
+  bio4 = 'Temperature Seasonality',
   bio5 = 'Max Temperature of Warmest Month',
   bio6 = 'Min Temperature of Coldest Month',
-  bio7 = 'Temperature Annual Range (bio5-bio6)',
+  bio7 = 'Temperature Annual Range',
   bio8 = 'Mean Temperature of Wettest Quarter',
   bio9 = 'Mean Temperature of Driest Quarter',
   bio10 = 'Mean Temperature of Warmest Quarter',
@@ -114,17 +146,28 @@ environ_vars <- c(
   bio12 = 'Annual Precipitation',
   bio13 = 'Precipitation of Wettest Month',
   bio14 = 'Precipitation of Driest Month',
-  bio15 = 'Precipitation Seasonality (Coefficient of Variation)',
+  bio15 = 'Precipitation Seasonality',
   bio16 = 'Precipitation of Wettest Quarter',
   bio17 = 'Precipitation of Driest Quarter',
   bio18 = 'Precipitation of Warmest Quarter',
   bio19 = 'Precipitation of Coldest Quarter'
 )
 
+# Combine with temp and precip
+environ_vars <- c(environ_vars,
+                  setNames(paste0(month.abb, " Min Temperature"), names(worldclim_dat_tmin)),
+                  setNames(paste0(month.abb, " Max Temperature"), names(worldclim_dat_tmax)),
+                  setNames(paste0(month.abb, " Mean Temperature"), names(worldclim_dat_tmean)),
+                  setNames(paste0(month.abb, " Precipitation"), names(worldclim_dat_prec))
+                  )
+
+
 # Combine into tidy df with classifiers for each variable
 environ_vars_df <- tibble(variable = names(environ_vars), full_name = environ_vars) %>%
   mutate(class = case_when(variable %in% paste0("bio", 1:11) ~ "temperature",
                            variable %in% paste0("bio", 12:19) ~ "precipitation",
+                           str_detect(full_name, "Temperature") ~ "temperature",
+                           str_detect(full_name, "Precipitation") ~ "precipitation",
                            TRUE ~ "geography"))
 
 
