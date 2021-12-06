@@ -723,6 +723,62 @@ combined_ld_plot <- plot_grid(left_plot) +
 ggsave(filename = "ld_decay_combined_chrom1.jpg", plot = combined_ld_plot, path = fig_dir,
        width = 5, height = 4, dpi = 1000)
 
+
+## Plot whole genome SPA and Fst
+##
+##
+
+library(slider)
+
+# Combine SPA with Fst
+spa_fst <- full_join(spa_out, marker_fst_wild)
+
+# Correlation
+cor(spa_fst$spa_score, spa_fst$Fst)
+plot(spa_fst$spa_score, spa_fst$Fst)
+
+
+
+spa_fst_slide <- spa_fst %>%
+  # Calculate sliding window of values
+  mutate_at(vars(spa_score, Fst), list(slide = ~slide_dbl(., mean, .before = 4, .after = 4, .step = 5))) %>%
+  filter(!is.na(spa_score_slide))
+
+
+spa_fst %>%
+  ggplot(aes(x = pos / 1e6)) +
+  geom_point(aes(y = spa_score), color = "red") +
+  geom_point(aes(y = -Fst), color = "blue") +
+  facet_grid(~ chrom, space = "free_x", scales = "free_x", switch = "x") +
+  scale_x_continuous(name = NULL, breaks = aggregate(pos ~ chrom, spa_fst, median)$pos) +
+  theme_genetics(8) +
+  theme(strip.placement = "outside", strip.background.x = element_blank(),
+        panel.spacing = unit(0, "line"))
+
+spa_fst_slide %>%
+  ggplot(aes(x = pos / 1e6)) +
+  # geom_point(aes(y = spa_score_slide), color = "red") +
+  # geom_point(aes(y = -Fst_slide), color = "blue") +
+  geom_line(aes(y = spa_score_slide), color = "red") +
+  geom_line(aes(y = -Fst_slide), color = "blue") +
+  facet_grid(~ chrom, space = "free_x", scales = "free_x", switch = "x") +
+  scale_x_continuous(name = NULL, breaks = aggregate(pos ~ chrom, spa_fst, median)$pos) +
+  theme_genetics(8) +
+  theme(strip.placement = "outside", strip.background.x = element_blank(),
+        panel.spacing = unit(0, "line"))
+
+
+
+# Any overlap?
+intersect(marker_fst_wild_outlier$marker, spa_outliers$marker)
+
+
+
+
+
+
+
+
 # Combine pop structure with LD
 g_popstr_ld <- plot_grid(pc_plot, combined_ld_plot, ncol = 1, labels = subfigure_labels[1:2],
                          label_size = 9, align = "h", axis = "tblr")
@@ -1008,6 +1064,17 @@ subset(all_marker_freq, marker %in% loci_highlight)
 
 
 
+# Nearby genes for these loci?
+egwas_sigmar_nearby_annotation1 %>%
+  filter(marker %in% loci_highlight) %>%
+  distinct(marker, nearby_annotation, closest_gene_dist) %>%
+  unnest() %>%
+  filter(type == "gene") %>%
+  filter(end_distance == min(end_distance)) %>%
+  unnest(attributes) %>%
+  as.data.frame()
+
+
 
 
 
@@ -1193,15 +1260,43 @@ subset(all_marker_freq, marker %in% loci_highlight)
 
 
 
-# Table SXX: All significant associations ---------------------------------
+# Nearby genes for these loci?
+egwas_sigmar_nearby_annotation1 %>%
+  filter(marker %in% loci_highlight) %>%
+  distinct(marker, nearby_annotation, closest_gene_dist) %>%
+  unnest() %>%
+  filter(type == "gene") %>%
+  filter(end_distance == min(end_distance)) %>%
+  unnest(attributes) %>%
+  as.data.frame()
+
+
+
+
+
+
+# Table S1: Name and description of environmental variables ---------------
+
+eaa_environmental_vars %>%
+  filter(str_detect(variable, "prec|tmax|tmin|tmean", negate = TRUE)) %>%
+  filter(! variable %in% c("elevation", "latitude", "longitude", "PC1", "PC2", "PC3")) %>%
+  arrange(class, variable) %>%
+  rename_all(~str_replace_all(., "_", " ") %>% str_to_title()) %>%
+  write_csv(x = ., file = file.path(fig_dir, "table_S01_env_variable_description.csv"))
+
+
+
+
+# Table S02: All significant associations ---------------------------------
 
 # Add the full names of the environmental variables
 egwas_sigmar %>%
+  filter(str_detect(variable, "prec|tmax|tmin|tmean", negate = TRUE)) %>%
   select(-model, -class, -contains("score")) %>%
   left_join(., eaa_environmental_vars) %>%
   select(variable, variable_full_name = full_name, names(.)) %>%
   # Save as a CSV
-  write_csv(x = ., file = file.path(fig_dir, "table_SXX_egwas_significant_associations.csv"))
+  write_csv(x = ., file = file.path(fig_dir, "table_S02_egwas_significant_associations.csv"))
 
 
 
@@ -1251,10 +1346,12 @@ pairwise_dist_data %>%
 egwas_sigmar1 <- egwas_sigmar %>%
   filter(str_detect(variable, "prec|tmax|tmin|tmean", negate = TRUE))
 
+# Number of total marker associations
+nrow(egwas_sigmar1)
+
 # Number of unique variables and markers
 n_distinct(egwas_sigmar1$variable)
 n_distinct(egwas_sigmar1$marker)
-
 
 
 # Determine significant

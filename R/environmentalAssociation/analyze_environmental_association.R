@@ -246,9 +246,11 @@ hist(random_snps_spa, breaks = 50); abline(v = gwas_mean_spa, col = "blue")
 
 # Look for gene annotations ------------------------------------------------
 
-# read in the GFF file
-cranberry_gff <- ape::read.gff(file = file.path(cran_dir, "Genotyping/ReferenceGenomes/Vaccinium_macrocarpon_BenLear_v2_annotations.gff"))
+gff_file <- file.path(cran_dir, "Genotyping/ReferenceGenomes/Vaccinium_macrocarpon_BenLear_v2_annotations.gff")
+gff_file <- file.path(data_dir, "/Vaccinium_macrocarpon_BenLear_v2_annotations.gff")
 
+# read in the GFF file
+cranberry_gff <- ape::read.gff(file = gff_file)
 
 ## Look for gene annotations near the significant markers
 
@@ -358,7 +360,7 @@ all_marker_gene_distance <- snp_info %>%
 
 # Save the annotation data
 save("egwas_sigmar_nearby_annotation1", "spa_outliers_nearby_annotation1", "egwas_sigmar", "eaa_gwas_spa_scores",
-     "spa_outliers", "spa_results",
+     "spa_outliers", "spa_results", "all_marker_gene_distance",
      file = file.path(result_dir, "egwas_sigmar_analysis.RData"))
 
 
