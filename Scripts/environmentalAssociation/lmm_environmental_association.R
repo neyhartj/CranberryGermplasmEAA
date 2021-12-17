@@ -18,29 +18,17 @@ source("startup.R")
 
 # What FDR threshold to use?
 fdr_thresh <- 0.20
-# What p-value threshold for the mlmm
-mlmm_p_thresh <- 0.20
 
 
-# Read in the marker data
-load(file.path(data_dir, "gc_marker_data.RData"))
-# Load the germplasm metadata (from the 01_prep_data.R script)
-load(file.path(data_dir, "germplasm_metadata.RData"))
-
-
+# Read in the base data
+load(file.path(data_dir, "population_metadata_and_genotypes.RData"))
 # Load the worldclim data
 load(file.path(data_dir, "germplasm_origin_bioclim_data.RData"))
 
-# Center and scale
+# Adjust elevation (zero if missing)
 eaa_environmental_data1 <- eaa_environmental_data %>%
   select(location_abbr, all_of(eaa_environmental_vars$variable)) %>%
   mutate(elevation = ifelse(is.na(elevation), 0, elevation))
-
-# Read in the germplasm metadata
-germ_meta <- germ_meta %>%
-  left_join(., select(eaa_environmental_data, origin_name, location_abbr)) %>%
-  # Get the state/province name from the location
-  mutate(state = str_sub(string = location_abbr, start = -2, end = -1))
 
 
 
@@ -48,9 +36,9 @@ germ_meta <- germ_meta %>%
 
 
 # Prepare the bioclim data as if it were trait data
-germplasm_bioclim_data <- germ_meta %>%
-  filter(category == "wild", !is.na(origin_latitude)) %>%
-  select(individual, latitude = origin_latitude, longitude = origin_longitude, state) %>%
+germplasm_bioclim_data <- pop_metadata %>%
+  filter(category == "Wild", !is.na(latitude)) %>%
+  select(individual, latitude, longitude) %>%
   left_join(., eaa_environmental_data1) %>%
   as.data.frame() %>%
   filter(individual %in% colnames(K_wild))
@@ -78,6 +66,15 @@ geno <- t(geno_mat_wild1) %>%
 # relationship matrix for the GWAS
 K_wild_use <- K_wild[row.names(geno_mat_wild1), row.names(geno_mat_wild1)]
 
+# Eigenvalues from K
+K_eigens <- prcomp(K_wild_use) %>%
+  broom::tidy() %>%
+  filter(PC %in% 1:3) %>%
+  mutate(PC = paste0("PC", PC)) %>%
+  spread(PC, value) %>%
+  rename(individual = row) %>%
+  as.data.frame()
+
 
 
 # Run eGWAS ---------------------------------------------------------------
@@ -91,12 +88,6 @@ K_wild_use <- K_wild[row.names(geno_mat_wild1), row.names(geno_mat_wild1)]
 # 4. K + PCs + latitude
 # 5. K + latitude + longitude
 # 6. K + PCs + latitude + longitude
-#
-
-# Subset to create the pheno data
-pheno <- germplasm_bioclim_data %>%
-  select(individual, all_of(eaa_environmental_vars$variable)) %>%
-  as.data.frame()
 
 # Create a tibble of model parameters to check
 egwas_models_df <- tribble(
@@ -107,7 +98,74 @@ egwas_models_df <- tribble(
   "model4", TRUE, 3, c("latitude"),
   "model5", TRUE, 0, c("latitude", "longitude"),
   "model6", TRUE, 3, c("latitude", "longitude"),
-) %>% mutate(output = list(NULL))
+) %>%
+  mutate(npar = map2_dbl(PCs, covariates, ~1 + 1 + .x + length(.y) + 1),
+         output = list(NULL))
+
+
+
+
+# # Use LRTs to determine which model to run
+#
+# full_models <- pheno %>%
+#   gather(variable, value, -individual) %>%
+#   group_by(variable) %>%
+#   do({
+#     df <- .
+#     df1 <- left_join(df, K_eigens, by =  "individual") %>%
+#       left_join(., pheno[,c("individual", "latitude", "longitude")], by = "individual")
+#
+#     # Copy egwas_models_df
+#     egwas_models_df1 <- egwas_models_df %>%
+#       select(-output) %>%
+#       mutate(logLik = as.numeric(NA))
+#
+#     # Iterate over models
+#     for (i in seq_len(nrow(egwas_models_df1))) {
+#       nPC <- egwas_models_df1$PCs[i]
+#       covariates <- setdiff(egwas_models_df1$covariates[[i]], unique(df1$variable))
+#       random_terms <- "individual"
+#       fixed_terms <- c("1", covariates, paste0(rep("PC", nPC), seq_len(nPC)))
+#
+#       # Create a model frame
+#       mf <- model.frame(reformulate(c(random_terms, fixed_terms), response = "value"),
+#                         data = df1)
+#       # Model matrices
+#       Z <- model.matrix(~ -1 + individual, mf)
+#       X <- model.matrix(reformulate(fixed_terms), mf)
+#
+#       # Fit the model
+#       fit <- mixed.solve(y = model.response(mf), Z = Z, K = K_wild_use, X = X, method = "ML")
+#       # Return the LL and df
+#       egwas_models_df1$logLik[i] <- fit$LL
+#
+#     }
+#
+#     # Calculate p-values
+#     mod2vmod1 <- pchisq(q = 2 * (egwas_models_df1$logLik[2] - egwas_models_df1$logLik[1]),
+#                         df = egwas_models_df1$npar[2] - egwas_models_df1$npar[1], lower.tail = FALSE)
+#     mod3vmod1 <- pchisq(q = 2 * (egwas_models_df1$logLik[3] - egwas_models_df1$logLik[1]),
+#                         df = egwas_models_df1$npar[3] - egwas_models_df1$npar[1], lower.tail = FALSE)
+#     mod4vmod2 <- pchisq(q = 2 * (egwas_models_df1$logLik[4] - egwas_models_df1$logLik[2]),
+#                         df = egwas_models_df1$npar[4] - egwas_models_df1$npar[2], lower.tail = FALSE)
+#     mod5vmod3 <- pchisq(q = 2 * (egwas_models_df1$logLik[5] - egwas_models_df1$logLik[3]),
+#                         df = egwas_models_df1$npar[5] - egwas_models_df1$npar[3], lower.tail = FALSE)
+#     mod6vmod4 <- pchisq(q = 2 * (egwas_models_df1$logLik[6] - egwas_models_df1$logLik[4]),
+#                         df = egwas_models_df1$npar[6] - egwas_models_df1$npar[4], lower.tail = FALSE)
+#
+#     egwas_models_df1 %>%
+#       mutate(p_value = c(as.numeric(NA), mod2vmod1, mod3vmod1, mod4vmod2, mod5vmod3, mod6vmod4))
+#
+#   }) %>% ungroup()
+
+
+
+
+
+# Subset to create the pheno data
+pheno <- germplasm_bioclim_data %>%
+  select(individual, all_of(eaa_environmental_vars$variable)) %>%
+  as.data.frame()
 
 
 # Iterate over the models in the list
@@ -163,7 +221,7 @@ gwas_out <- egwas_models_df %>%
       mutate(unif_score = qqscore(score)) %>%
       select(marker, chrom, pos, model, variable, score, p_value, unif_score)
 
-    left_join(.x, .x2, by = c("model", "marker", "chrom", "pos", "variable", "score", "p_value")
+    left_join(.x, .x2, by = c("model", "marker", "chrom", "pos", "variable", "score", "p_value"))
   })
 
 # P-value inflation factor
@@ -334,8 +392,12 @@ ggsave(filename = "egwas_qqplots.jpg", plot = qq_plots, path = fig_dir,
 # ## Save the results
 # save("gwas_out", "p_lambda", "mlmm_out_list", file = file.path(result_dir, "eaa_gwas_results.RData"))
 
+# Edit egwas_models_df
+egwas_models_df <- egwas_models_df %>%
+  select(-output)
 
-save("gwas_out", "p_lambda", file = file.path(result_dir, "eaa_gwas_results.RData"))
+
+save("gwas_out", "p_lambda", "egwas_models_df", file = file.path(result_dir, "eaa_gwas_results.RData"))
 
 
 
