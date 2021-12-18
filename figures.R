@@ -5,6 +5,7 @@
 #
 
 # Load packages
+library(GenomicRanges)
 library(raster)
 library(tidyverse)
 library(readxl)
@@ -54,6 +55,22 @@ ggsave2 <- function(filename, plot, device = fig_device, path = fig_dir,
 
 }
 
+# A function that replaces environmental variable short names with the full names
+# given a width parameter
+f_rename_variables <- function(x, width = 30, abbreviate = TRUE) {
+  if (x %in% c("SPA", "F[ST]")){
+    return(x)
+  } else {
+    full_names <- subset(eaa_environmental_vars, variable %in% x, full_name, drop = TRUE)
+    if (abbreviate) {
+      full_names <- full_names %>% str_replace_all(., "Temperature", "Temp.") %>%
+        str_replace_all("Precipitation", "Precip.") %>%
+        str_replace_all(., "Max", "Max.") %>%
+        str_replace_all("Min", "Min.")
+    }
+    str_wrap(string = full_names, width = width)
+  }
+}
 
 
 
@@ -72,6 +89,9 @@ load(file.path(result_dir, "egwas_sigmar_analysis.RData"))
 gff_file <- file.path(cran_dir, "Genotyping/ReferenceGenomes/Vaccinium_macrocarpon_BenLear_v2_annotations.gff")
 # read in the GFF file
 cranberry_gff <- ape::read.gff(file = gff_file)
+cran_gene_ranges <- rtracklayer::import.gff3(con = gff_file)
+
+
 # Calculate min/max chrom lengths
 chromlengths <- cranberry_gff %>%
   filter(type == "chromosome", seqid != "Unknown") %>%
@@ -265,8 +285,8 @@ for (i in seq_len(nrow(eaa_gwas_manhattan_plot_df))) {
     select(marker, p_value)
 
 
-  filename <- paste0("egwas_manhattan_", vari, ".jpg")
-  ggsave(filename = filename, plot = g_man, path = fig_dir, width = 8, height = 4, dpi = 300)
+  # filename <- paste0("egwas_manhattan_", vari, ".jpg")
+  # ggsave(filename = filename, plot = g_man, path = fig_dir, width = 8, height = 4, dpi = 300)
 
 
 }
@@ -285,9 +305,6 @@ eaa_gwas_manhattan_plot_df <- eaa_gwas_manhattan_plot_df %>%
 # Iterate over markers and create two plots:
 # 1. alleles versus bioclim variation
 # 2. alleles across geography
-
-# Set seed for reproducible jitter
-set.seed(206)
 
 # Combine all significant markers and FST/SPA outliers
 all_sigmar <- egwas_sigmar %>%
@@ -416,37 +433,32 @@ sigmar_summary <- all_sigmar %>%
 
 
   }) %>% ungroup() %>%
-  left_join(., select(eaa_environmental_vars, -class))
+  left_join(., select(eaa_environmental_vars, -class)) %>%
+  mutate(variable = factor(variable, levels = eaa_environmental_vars$variable)) %>%
+  arrange(variable)
 
 
 
-# Create a bunch of plots
-pb <- progress::progress_bar$new(total = nrow(sigmar_summary))
-
-for (i in seq_len(nrow(sigmar_summary))) {
-
-  # Determine the left and right plots
-  left_plot <- sigmar_summary$plot2[[i]] +
-    theme(legend.position = "none")
-  right_plot <- sigmar_summary$plot1[[i]]
-
-  combined_plot1 <- plot_grid(left_plot, right_plot, rel_widths = c(1, 0.4))
-
-  # Save
-  filename <- paste0("egwas_summary_", sigmar_summary$variable[i], "-marker-", sigmar_summary$marker[i], "-",
-                     sigmar_summary$class[i], ".jpg")
-  ggsave(filename = filename, plot = combined_plot1, path = fig_dir, width = 8, height = 2.5, dpi = 300)
-
-  pb$tick()
-
-}
-
-
-
-
-
-
-
+# # Create a bunch of plots
+# pb <- progress::progress_bar$new(total = nrow(sigmar_summary))
+#
+# for (i in seq_len(nrow(sigmar_summary))) {
+#
+#   # Determine the left and right plots
+#   left_plot <- sigmar_summary$plot2[[i]] +
+#     theme(legend.position = "none")
+#   right_plot <- sigmar_summary$plot1[[i]]
+#
+#   combined_plot1 <- plot_grid(left_plot, right_plot, rel_widths = c(1, 0.4))
+#
+#   # Save
+#   filename <- paste0("egwas_summary_", sigmar_summary$variable[i], "-marker-", sigmar_summary$marker[i], "-",
+#                      sigmar_summary$class[i], ".jpg")
+#   ggsave(filename = filename, plot = combined_plot1, path = fig_dir, width = 8, height = 2.5, dpi = 300)
+#
+#   pb$tick()
+#
+# }
 
 
 
@@ -822,13 +834,14 @@ ggsave2(filename = "figure3_genomic_statistics_chroms", plot = g_chromlengths,
 
 
 
-# Figure 4: Temperature related associations -----------------------------
+# Figure 4: cold temperature association example -----------------------------
 
 
 ## First show the locus on Chromosome 4 associated with multiple worldclim temperature
 ## variables
 
-loci_highlight <- c("S04_24963382", "S07_30582060")
+# loci_highlight <- c("S04_24963382", "S07_30582060")
+loci_highlight <- c("S04_24963382")
 
 egwas_sigmar %>%
   filter(marker %in% loci_highlight) %>%
@@ -846,145 +859,222 @@ locus1_highlight_rect <- snp_info %>%
   mutate(left = pos - 1000, right = pos + 1000)
 
 
-# Create a merged manhattan plot
-#
-# Subset manhattan plots for biovars associated with this locus
-manhattan_list <- subset(eaa_gwas_manhattan_plot_df, variable %in% locus1_summary$variable, plot, drop = TRUE) %>%
-  map(., ~. + geom_vline(data = locus1_highlight_rect, aes(xintercept = pos), lwd = 3, color = "grey75", alpha = 0.2) +
-        theme(axis.title.y = element_blank())) %>%
-  map(~{.x$labels$caption <- NULL; .x}) %>% # Remove the caption
-  map(~{.x$layers[[2]]$aes_params$size <- 0.5; .x}) %>% # Modify point size
-  # Modify theme
-  map(~. + theme_genetics(base_size = base_font_size) +
-        theme(panel.spacing.x = unit(0, "lines"), strip.placement = "outside",
-              axis.text.x = element_blank(), axis.ticks.length.x = unit(0.25, "lines"), axis.line.x = element_blank(),
-              legend.position = c(1, 1), legend.justification = c(1, 1), legend.direction = "vertical",
-              legend.background = element_rect(fill = alpha("white", 0)),
-              axis.title.y = element_blank(), strip.background.x = element_blank())) %>%
-  # Modify the scale for linetype
-  map(~ . + scale_linetype(name = NULL, guide = guide_legend(ncol = 1, keyheight = unit(0.5, "line")))) %>%
-  modify_at(.x = ., .at = -length(.), ~. + theme(axis.ticks.x = element_blank(), strip.text.x = element_blank())) %>%
-  modify_at(.x = ., .at = 1, ~ . + theme(legend.direction = "horizontal")) %>%
-  modify_at(.x = ., .at = -1, ~. + theme(legend.position = "none"))
+## Plot Part A - combined manhattan plots
 
-# Text grob
-y_axis_label <- grid::textGrob(label = expression(-log[10](p-value)), rot = 90,
-                               gp = grid::gpar(fontsize = base_font_size))
+# Get the manhattan plot data for all of the variable associated with the loci
+manhattan_data <- eaa_gwas_manhattan_plot_df %>%
+  filter(variable %in% locus1_summary$variable) %>%
+  mutate(plot_data = map(plot, "data"), variable = factor(variable, levels = eaa_environmental_vars$variable)) %>%
+  select(variable, plot_data) %>%
+  unnest(plot_data, names_repair = tidyr_legacy)
 
-# Combine these
-g_manhattan_combine <- cowplot::plot_grid(plotlist = manhattan_list, ncol = 1,
-                                          rel_heights = c(1, rep(0.7, length(manhattan_list)-2), 0.85))
-g_manhattan_combine1 <- cowplot::plot_grid(y_axis_label, g_manhattan_combine, rel_widths = c(0.03, 1))
-
-# Save
-ggsave(filename = "temperature_ROI_manhattan_merge.jpg", plot = g_manhattan_combine1, path = fig_dir,
-       height = 5, width = 3.5, dpi = 1000)
+# Create a DF for adding fdr thresholds
+fdr_df <- manhattan_data %>%
+  group_by(variable) %>%
+  nest() %>%
+  # Calculate FDR levels for plotting
+  mutate(fdr_0.20 = map_dbl(data, ~sommer:::fdr(p = .x$p_value, fdr.level = 0.20)$fdr.10),
+       fdr_0.05 = map_dbl(data, ~sommer:::fdr(p = .x$p_value, fdr.level = 0.05)$fdr.10)) %>%
+  mutate_at(vars(contains("fdr")), ~-log10(.)) %>%
+  ungroup() %>%
+  select(-data) %>%
+  gather(fdr_level, fdr_score, -variable) %>%
+  mutate(annotation = str_to_upper(str_replace_all(fdr_level, "_", " ")),
+         annotation = fct_relevel(annotation, "FDR 0.05"))
 
 
+# Plot
+g_man_combined <- manhattan_data %>%
+  ggplot(aes(x = pos, y = score)) +
+  geom_hline(data = fdr_df, aes(linetype = annotation, yintercept = fdr_score), color = "grey75") +
+  geom_point(color = manhattan_data$chrom_color, size = 0.5) +
+  # Add highlighting line
+  geom_vline(data = locus1_highlight_rect, aes(xintercept = pos), lwd = 2.5, color = "grey75", alpha = 0.2) +
+  facet_grid(variable ~ chrom, scales = "free_x", space = "free_x", switch = "both",
+             labeller = labeller(variable = function(x) f_rename_variables(x, width = 18))) +
+  scale_x_continuous(breaks = median, name = NULL) +
+  scale_y_continuous(name = expression(-log[10](p-value)), breaks = pretty, expand = expansion(mult = c(0, 0.35))) +
+  scale_linetype_discrete(name = NULL) +
+  theme_genetics(base_size = base_font_size) +
+  theme(panel.spacing.x = unit(0, "lines"), strip.placement = "outside",
+        axis.text.x = element_blank(), axis.ticks.length.x = unit(0.25, "lines"), axis.line.x = element_blank(),
+        legend.position = c(0.99, 0.99), legend.justification = c(0.99, 0.99), legend.direction = "horizontal",
+        legend.background = element_rect(fill = alpha("white", 0)),
+        strip.background.x = element_blank())
 
 
-## Plot the geographic distribution of the alleles at these SNPs
-sigmar_allele_geo_dist <- sigmar_summary %>%
-  select(-variable, -full_name) %>%
-  split(.$marker) %>%
-  map_df(head, 1)
+## Plot Part B - Genomic range of the gene
 
-allele_geo_list <- sigmar_allele_geo_dist %>%
+loci_grange <- subset(snp_info, marker %in% loci_highlight) %>%
+  mutate(start = pos - 17000, end = pos + 17000, chrom = parse_number(chrom)) %>%
+  as(., "GRanges")
+
+# Nearby overlaps
+loci_overlaps <- subsetByOverlaps(cran_gene_ranges, loci_grange) %>%
+  subset(type == "gene")
+
+# For each gene, get exons
+loci_overlaps_exons <- loci_overlaps %>%
+  split(.$ID) %>%
+  lapply(X = ., FUN = function(x) subsetByOverlaps(cran_gene_ranges, x)) %>%
+  map(~subset(., type == "exon")) %>%
+  imap_dfr(~as.data.frame(.x) %>% mutate(.id = .y)) %>%
+  mutate(y = as.numeric(as.factor(strand)))
+
+# Make introns
+loci_overlaps_introns <- loci_overlaps_exons %>%
+  split(.$.id) %>%
+  map_df(~{
+    mutate(head(.x, -1), start1 = end, end1 = c(start[-1], tail(.x$start, 1))) %>%
+      split(.$ID) %>%
+      map_df(~{
+        mid <- floor(mean(c(.x$start1[1], .x$end1[1])))
+        data.frame(ID = .x$ID, strand = .x$strand, start1 = c(.x$start1[1], mid), end1 = c(mid, .x$end1[1]),
+                   y = c(.x$y[1], .x$y + 0.05), yend = c(.x$y + 0.05, .x$y[1]))
+      })
+  })
+
+
+
+loci_overlaps_exons_range <- loci_overlaps_exons %>%
+  group_by(.id, strand, y) %>%
+  summarize(start = min(start), end = max(end), .groups = "drop")
+
+loci_overlaps_df <- as.data.frame(loci_overlaps)
+
+# Visualize
+g_loci_overlaps <- loci_overlaps_exons %>%
+  ggplot(aes(x = start, xend = end, y = y, yend = y, color = strand)) +
+  # geom_segment(data = loci_overlaps_exons_range, lwd = 0.5) +
+  # geom_segment(lwd = 4, arrow = arrow(length = unit(0.05, "line"), ends = ifelse(loci_overlaps_df$strand == "+", "first", "last"),
+  #                                     angle = 2, type = "closed"), linejoin = "mitre") +
+  geom_segment(lwd = 1.5, lineend = "square") +
+  geom_segment(data = loci_overlaps_introns, aes(x = start1, xend = end1, yend = yend)) +
+  geom_vline(data = locus1_highlight_rect, aes(xintercept = pos), lwd = 2.5, color = "grey75", alpha = 0.2) +
+  scale_color_discrete(guide = FALSE) +
+  # Adjust 'expand' argument to align the vertical lines from the manhattan plot and the gene model plot
+  scale_x_continuous(name = "Chromosome 4 position", breaks = pretty) +
+  scale_y_continuous(expand = expansion(mult = 0.5)) +
+  theme_genetics(base_size = base_font_size) +
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+        axis.line.y = element_blank())
+
+# Offset amount
+offset <- 0.10
+
+# Polygons
+loci_overlaps_polygons <- loci_overlaps_df %>%
+  select(strand, start, end, Name) %>%
+  mutate(strand_num = as.numeric(as.factor(strand))) %>%
+  split(.$Name) %>%
+  map_df(~{
+    rect <- data.frame(strand = .x$strand,
+               x = c(rep(.x$start, 2), rep(.x$end, 2)),
+               y = c(c(.x$strand_num - offset, .x$strand_num + offset), rev(c(.x$strand_num - offset, .x$strand_num + offset))),
+               Name = .x$Name,
+               group = paste0(.x$Name, "_rect"))
+    # Triangle
+    xend <- ifelse(.x$strand == "+", .x$start - 1000, .x$end + 1000)
+    xstart <- ifelse(.x$strand == "+", .x$start, .x$end)
+    tri <- data.frame(strand = .x$strand,
+                      x = c(xstart, xstart, xend),
+                      y = c(.x$strand_num - offset, .x$strand_num + offset, .x$strand_num),
+                      Name = .x$Name,
+                      group = paste0(.x$Name, "_tri"))
+    # Merge
+    bind_rows(rect, tri)
+  })
+
+# DF for labels
+loci_overlaps_labels <- loci_overlaps_polygons %>%
+  group_by(Name) %>%
+  summarize(x = (max(x) + min(x))/2, y = min(y) - (2*offset), strand = first(strand))
+
+g_loci_overlaps <- loci_overlaps_polygons %>%
+  ggplot(aes(x = x / 1e3, y = y)) +
+  geom_polygon(aes(fill = strand, group = group)) +
+  geom_vline(data = locus1_highlight_rect, aes(xintercept = pos / 1e3), lwd = 2.5, color = "grey75", alpha = 0.2) +
+  geom_text(data = loci_overlaps_labels, mapping = aes(label = Name), size = 2, hjust = "inward") +
+  # geom_text_repel(data = loci_overlaps_labels, mapping = aes(label = Name), size = 2, direction = "y") +
+  scale_fill_discrete(guide = FALSE) +
+  # Adjust 'expand' argument to align the vertical lines from the manhattan plot and the gene model plot
+  scale_x_continuous(name = "Chromosome 4 position (kbp)", breaks = pretty) +
+  scale_y_continuous(expand = expansion(mult = 0.1)) +
+  theme_genetics(base_size = base_font_size) +
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+        axis.line.y = element_blank())
+
+
+
+## Part C - geographic distribution of the marker alleles
+
+# Subset this from the list of plots above
+allele_geo_list <- sigmar_summary %>%
   filter(marker %in% loci_highlight) %>%
   split(.$marker) %>%
   map("plot2") %>%
-  map(1)
-
-allele_freq <- all_marker_freq %>%
-  filter(marker %in% loci_highlight)
+  map(1) %>%
+  map(~.x + theme_nothing(font_size = base_font_size) + theme(legend.position = .x$theme$legend.position))
 
 
+## Part D - Bioclim variables versus marker alleles
 
-## Bioclim variables versus marker alleles
 bioclim_allele_list <- sigmar_summary %>%
   filter(marker %in% loci_highlight, str_detect(variable, "bio")) %>%
   split(.$marker) %>%
   map(~{
-    plot_list <- .x$plot1
     # Combine plot data
-    plot_data_combined <- map(plot_list, "data") %>%
-      map2_dfr(.x = ., .y = map(plot_list, ~.x$labels$y), ~mutate(.x, variable = .y)) %>%
-      mutate(genotypes_overall = genotype,
-             variable = str_replace_all(variable, "\n", " "),
-             variable = str_wrap(variable, width = 20))
+    plot_data_combined <- .x %>%
+      mutate(data = map(plot1, "data")) %>%
+      select(-contains("plot")) %>%
+      unnest(data) %>%
+      mutate(genotypes_overall = genotype)
 
-    g_use <- plot_list[[1]]
-    g_use$labels$y <- NULL
-    g_use$labels$x <- NULL
-    g_use$data <- plot_data_combined
+    alleles <- str_split(subset(snp_info, marker == unique(.x$marker), alleles, drop = TRUE), "/")[[1]]
+    ref_allele <- alleles[1]
+    alt_allele <- alleles[2]
 
-    g_use1 <- g_use +
-      facet_wrap(~ variable, nrow = 1, scales = "free_y") +
-      theme(strip.background = element_blank())
+    # Create genotype colors
+    genotype_colors <- colorRampPalette(colors = allele_colors)(3) %>%
+      setNames(., c(paste0(ref_allele, ref_allele), paste0(ref_allele, alt_allele), paste0(alt_allele, alt_allele)))
 
-    g_use1
+    # Means by genotype class
+    genotype_means <- aggregate(biovar ~ genotypes_overall + variable, plot_data_combined, mean)
+
+    # Create a new plot and return
+    plot_data_combined %>%
+      ggplot(aes(x = 0, y = biovar, fill = genotypes_overall, group = genotypes_overall)) +
+      geom_jitter(pch = 21, position = position_jitterdodge(jitter.width = 0.10, dodge.width = 0.75), size = 1) +
+      geom_point(data = genotype_means, position = position_dodge(0.75), pch = "+", size = 5, color = neyhart_palette()[3]) +
+      facet_wrap(~ variable, ncol = 3, scales = "free_y", dir = "v",
+                 labeller = labeller(variable = f_rename_variables)) + # dir = "v" means fill by column
+      scale_fill_manual(values = genotype_colors, guide = FALSE) +
+      scale_x_continuous(name = NULL, labels = NULL, breaks = NULL) +
+      scale_y_continuous(name = NULL, breaks = pretty) +
+      theme_grey(base_size = base_font_size) +
+      theme(strip.background = element_blank(), panel.grid.minor.x = element_blank(),
+            panel.grid.major.x = element_blank())
 
   })
 
 
-# Combine the geographic distribution plots and allele effect plots
-sigmar_summary_temperature_list <- map(names(allele_geo_list), ~{
-  top_plot <- allele_geo_list[[.x]]
-  bottom_plot <- bioclim_allele_list[[.x]]
+## Combine everything
 
-  ref_allele <- subset(marker_metadata, marker == .x, ref_allele, drop = TRUE)
-  alt_allele <- subset(marker_metadata, marker == .x, alt_allele, drop = TRUE)
+p1 <- g_man_combined
+p2 <- g_loci_overlaps
+p3 <- allele_geo_list$S04_24963382
+p4 <- bioclim_allele_list$S04_24963382
 
-  # Create genotype colors
-  genotype_colors <- colorRampPalette(colors = allele_colors)(3) %>%
-    setNames(., c(paste0(ref_allele, ref_allele), paste0(ref_allele, alt_allele), paste0(alt_allele, alt_allele)))
+# For patchwork, you need to specify the nesting design, as demonstrated below
+g_combined <- ( (p1 + p2 + plot_layout(ncol = 1, heights = c(1, 0.12))) |
+    (p3 + p4 + plot_layout(ncol = 1, heights = c(1, 1))) ) +
+  plot_layout(ncol = 2, widths = c(0.40, 1)) +
+  plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = base_font_size + 2, face = "plain"))
 
-  # Edit subtitle
-  top_plot1 <- top_plot +
-    scale_color_manual(values = genotype_colors, name = paste0(.x, "\nmarker genotype"),
-                       guide = guide_legend(override.aes = list(size = 2))) +
-    theme_nothing(font_size = base_font_size) +
-    theme(legend.position = c(0.75, 0.10), legend.justification = c(0,0))
-
-
-  # Combine
-  plot_grid(top_plot1, bottom_plot, ncol = 1, rel_heights = c(1, 0.8))
-
-})
-
-names(sigmar_summary_temperature_list) <- names(allele_geo_list)
-
-# Save plots
-for (i in seq_along(sigmar_summary_temperature_list)) {
-  marker <- names(sigmar_summary_temperature_list)[i]
-  filename <- paste0("example_associations_marker_", marker, ".jpg")
-  ggsave(filename = filename, plot = sigmar_summary_temperature_list[[i]], path = fig_dir,
-         height = 3, width = 4, dpi = 1000)
-
-}
-
-
-
-# Combine with the manhattan plots
-
-lhs <- g_manhattan_combine1 + plot_spacer() +
-  plot_layout(widths = c(1, 0.03))
-rhs <- (sigmar_summary_temperature_list[[1]] / plot_spacer() / sigmar_summary_temperature_list[[2]]) +
-  plot_layout(heights = c(1, 0.05, 1))
-
-# Merge using patchwork
-combined_plot <- (lhs | rhs) +
-  plot_layout(widths = c(0.65, 1)) +
-  plot_annotation(tag_levels = "A") & theme(plot.tag = element_text(size = base_font_size + 2, hjust = 0.5))
 
 # Save
-ggsave2(filename = "figure4_temperature_associations", plot = combined_plot,
-       height = 6, width = 8, dpi = 500)
-
-
-all_marker_freq %>%
-  filter(marker %in% loci_highlight) %>%
-  spread(category, ref_allele_freq)
+ggsave2(filename = "figure4_chrom4_temperature_association", plot = g_combined,
+        width = 8, height = 6, dpi = 500)
 
 
 
@@ -1021,10 +1111,43 @@ all_sigmar_nearby_annotation %>%
 
 
 
+# # Allele frequencies for this marker in different populations
+# allele_freq <- all_marker_freq %>%
+#   filter(marker %in% loci_highlight)
+#
+# # Subset individuals that are homozygous for the minor/favorable allele
+# favorable_genotype <- 1
+# indivs_with_favorable_allele <- geno_mat_all[,loci_highlight] %>%
+#   subset(., . == favorable_genotype)
+#
+# g <- pca_tidy %>%
+#   left_join(., rownames_to_column(as.data.frame(geno_mat_all[,loci_highlight, drop = FALSE]), "individual")) %>%
+#   rename_at(vars(all_of(loci_highlight)), ~paste0("marker", seq_along(.))) %>%
+#   mutate_at(vars(contains("marker")), as.factor) %>%
+#   ggplot(aes(x = PC1, y = PC2, color = marker1, shape = category, label = individual)) +
+#   geom_point(size = 2) +
+#   scale_x_continuous(name = paste0("PC1 (", round(pc_varexp["PC1"] * 100, 3), "%)"), breaks = pretty,
+#                      labels = format_numbers) +
+#   scale_y_continuous(name = paste0("PC2 (", round(pc_varexp["PC2"] * 100, 3), "%)"), breaks = pretty,
+#                      labels = format_numbers) +
+#   scale_alpha_discrete(guide = FALSE) +
+#   theme_genetics(base_size = 12) +
+#   theme(legend.position = "right", legend.justification = c(0.99, 0.99))
+#
+# plotly::ggplotly(g)
 
 
 
-# Figure 5: associations related to soil variables --------------------------
+
+
+
+
+
+
+
+
+
+# Figure 5: soil texture association example --------------------------
 
 
 
@@ -1482,11 +1605,9 @@ ggsave2(filename = "figureSXX_SPA_outliers", plot = g_combined, height = 10, wid
 
 
 
-# Table S01: Name and description of environmental variables ---------------
+# Supplemental Table S01: Name and description of environmental variables ---------------
 
 eaa_environmental_vars %>%
-  filter(str_detect(variable, "prec|tmax|tmin|tmean", negate = TRUE)) %>%
-  filter(! variable %in% c("elevation", "latitude", "longitude", "PC1", "PC2", "PC3")) %>%
   arrange(class, variable) %>%
   rename_all(~str_replace_all(., "_", " ") %>% str_to_title()) %>%
   write_csv(x = ., file = file.path(fig_dir, "table_S01_env_variable_description.csv"))
@@ -1494,28 +1615,28 @@ eaa_environmental_vars %>%
 
 
 
-# Table S02: All significant associations ---------------------------------
+# Supplemental Table S02: all EAA significant markers ---------------------------------
+
 
 # Add the full names of the environmental variables
 egwas_sigmar %>%
-  filter(str_detect(variable, "prec|tmax|tmin|tmean", negate = TRUE)) %>%
-  select(-model, -class, -contains("score")) %>%
+  select(-model, -contains("score")) %>%
   left_join(., eaa_environmental_vars) %>%
-  select(variable, variable_full_name = full_name, names(.)) %>%
+  select(variable, class, marker, chrom, pos, p_value) %>%
+  rename_all(~str_replace_all(., "_", " ") %>% str_to_title()) %>%
   # Save as a CSV
   write_csv(x = ., file = file.path(fig_dir, "table_S02_egwas_significant_associations.csv"))
 
 
 
+# Supplemental Table S03: SPA and Fst outliers ---------------------------------
 
-
-
-
-
-
-
-
-
+all_sigmar %>%
+  filter(! variable %in% eaa_environmental_vars$variable) %>%
+  select(variable, marker, chrom, pos, score) %>%
+  rename_all(~str_replace_all(., "_", " ") %>% str_to_title()) %>%
+  # Save as a CSV
+  write_csv(x = ., file = file.path(fig_dir, "table_S03_spa_fst_outlier_markers.csv"))
 
 
 
