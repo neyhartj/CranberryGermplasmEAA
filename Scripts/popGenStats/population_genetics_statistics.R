@@ -266,6 +266,21 @@ pop_seg_sites <- indiv_per_pop %>%
 # 17 PLLMA              4739       0.969       35
 
 
+
+# Calculate the number of private alleles per population ------------------
+
+pop_private_alleles <- indiv_per_pop %>%
+  map_dbl(~{
+    # List all remaining individuals from other pops
+    .x1 <- setdiff(unlist(indiv_per_pop), .x)
+    # Find the SNPs that are not segregating in these remaining individuals
+    nGenoPerSnp <- apply(geno_mat_wild[.x1, , drop = FALSE], 2, n_distinct)
+    sum(nGenoPerSnp == 1)
+  })
+
+
+
+
 # Run SPA -----------------------------------------------------------------
 
 # Run the run_SPA.sh script from R
@@ -317,42 +332,48 @@ global_marker_fst <- geno_hmp_wild %>%
 # Save global Fst
 (global_fst <- wc_fst$FST)
 
-## Calculate Fst while removing singleton locations
-wc_fst2 <- data_for_fstat %>%
-  inner_join(., subset(as.data.frame(xtabs(~ population, data_for_fstat)), Freq > 1)) %>%
-  wc(ndat = ., diploid = TRUE)
+# Split populations by latitude
+pop_latitude_split <- germ_meta1 %>%
+  filter(individual %in% row.names(data_for_fstat)) %>%
+  mutate(population = ifelse(latitude < 43, "lower_latitude", "upper_latitude")) %>%
+  select(individual, location = location_of_origin, population) %>%
+  as.data.frame() %>%
+  right_join(., rownames_to_column(data_for_fstat, "individual"), by = c("location" = "population", "individual")) %>%
+  select(population, names(.), -location) %>%
+  column_to_rownames("individual")
+
+# Calcualate FST
+wc_fst_latitude <- wc(ndat = pop_latitude_split, diploid = TRUE)
 
 # Create a summary data.frame per locus
-global_marker_fst2 <- geno_hmp_wild %>%
-  select(marker, chrom, pos) %>%
-  # left_join(., basic_stats_out$perloc %>% as.data.frame() %>% rownames_to_column("marker"))
-  left_join(., rownames_to_column(wc_fst2$per.loc, "marker") %>% rename(Fst = FST, Fis = FIS))
+latitude_marker_fst <- snp_info %>%
+  left_join(., rownames_to_column(wc_fst_latitude$per.loc, "marker") %>% rename(Fst = FST, Fis = FIS))
 
-(global_fst2 <- wc_fst2$FST)
 
-# Calculate pairwise Fst between populations
-pairwise_data_for_fst <- pop_df %>%
-  distinct(population) %>%
-  crossing(., ., .name_repair = tidyr_legacy) %>%
-  filter(population != population1) %>%
-  mutate(data = map2(population, population1, ~subset(data_for_fstat, population %in% c(.x, .y))))
+# Split populations by elevation
+pop_elevation_split <- germ_meta1 %>%
+  filter(individual %in% row.names(data_for_fstat)) %>%
+  left_join(., select(eaa_environmental_data, location_abbr, elevation)) %>%
+  mutate(population = ifelse(elevation < 100, "lower_elevation", "upper_elevation")) %>%
+  select(individual, location = location_of_origin, population) %>%
+  as.data.frame() %>%
+  right_join(., rownames_to_column(data_for_fstat, "individual"), by = c("location" = "population", "individual")) %>%
+  select(population, names(.), -location) %>%
+  column_to_rownames("individual")
 
-pairwise_wc_fst <- pairwise.WCfst(dat = data_for_fstat, diploid = TRUE)
+# Calcualate FST
+wc_fst_elevation <- wc(ndat = pop_elevation_split, diploid = TRUE)
 
-# Neighbor join
-pairwise_wc_fst_nj1 <- pairwise_wc_fst_nj <- nj(X = pairwise_wc_fst)
-# Adjust tip labels
-pairwise_wc_fst_nj1$tip.label <-  abbreviate(str_remove_all(pairwise_wc_fst_nj1$tip.label, ", "))
-# Plot
-plot(x = pairwise_wc_fst_nj1, type = "u")
-
+# Create a summary data.frame per locus
+elevation_marker_fst <- snp_info %>%
+  left_join(., rownames_to_column(wc_fst_elevation$per.loc, "marker") %>% rename(Fst = FST, Fis = FIS))
 
 
 # Plot
-g_fst <- global_marker_fst2 %>%
+elevation_marker_fst %>%
   mutate(chrom = parse_number(chrom), even_chrom = chrom %% 2 == 0) %>%
   ggplot(aes(x = pos, y = Fst, color = even_chrom)) +
-  geom_hline(yintercept = quantile(global_marker_fst2$Fst, 0.999), lty = 2) +
+  geom_hline(yintercept = quantile(elevation_marker_fst$Fst, 0.999), lty = 2) +
   geom_point() +
   scale_color_discrete(guide = FALSE) +
   scale_x_continuous() +
@@ -482,7 +503,7 @@ mantel_out
 
 
 # Save the results
-save("global_marker_fst", "global_marker_fst2", "global_fst", "global_fst2", "pairwise_wc_fst", "spa_out",
+save("global_marker_fst", "global_fst", "pairwise_wc_fst", "spa_out",
      "ld_wild_decay", "ld_wild_df", "pairwise_dist_data", "wc_fst_WildNative", "wc_fst_WildBreeding", "wc_fst_NativeBreeding",
      file = file.path(result_dir, "population_genetics_stats.RData"))
 

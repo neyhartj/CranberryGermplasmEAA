@@ -53,6 +53,59 @@ long_range <- range(location_metadata$longitude, na.rm = TRUE)
 
 
 
+# Format environmental variables ------------------------------------------
+
+# Names of bioclim variables
+environ_vars_tbl <- tribble(
+  ~ variable, ~ full_name, ~ unit,
+  "elevation", "Elevation", "m",
+  "latitude", "Latitude", "",
+  "longitude", "Longitude", "",
+  "bio1", 'Annual Mean Temperature', "C",
+  "bio2", 'Mean Diurnal Range', "C",
+  "bio3", 'Isothermality', "",
+  "bio4", 'Temperature Seasonality', "C x 100",
+  "bio5", 'Max Temperature of Warmest Month',  "C",
+  "bio6", 'Min Temperature of Coldest Month', "C",
+  "bio7", 'Temperature Annual Range', "C",
+  "bio8", 'Mean Temperature of Wettest Quarter', "C",
+  "bio9", 'Mean Temperature of Driest Quarter', "C",
+  "bio10", 'Mean Temperature of Warmest Quarter', "C",
+  "bio11", 'Mean Temperature of Coldest Quarter', "C",
+  "bio12", 'Annual Precipitation', "mm",
+  "bio13", 'Precipitation of Wettest Month', "mm",
+  "bio14", 'Precipitation of Driest Month', "mm",
+  "bio15", 'Precipitation Seasonality', "mm",
+  "bio16", 'Precipitation of Wettest Quarter', "mm",
+  "bio17", 'Precipitation of Driest Quarter', "mm",
+  "bio18", 'Precipitation of Warmest Quarter', "mm",
+  "bio19", 'Precipitation of Coldest Quarter', "mm"
+)
+
+environ_vars <- setNames(environ_vars_tbl$full_name, environ_vars_tbl$variable)
+
+
+# Soil variables
+soil_vars_tbl <- tribble(
+  ~ variable, ~ full_name, ~ unit,
+  "bdod", "bulk_density", "cg cm^-3",
+  "cec", "cation_exchange_cap", "mmol(c) kg^-1",
+  "cfvo", "course_fragment_content", "cm^3 dm^-3",
+  "clay", "clay", "g kg^-1",
+  "nitrogen", "total_nitrogen", "cg kg^-1",
+  "ocd", "organic_carbon_density", "hg m^-3",
+  "phh2o", "pH", "pH x 10",
+  "sand", "sand", "g kg^-1",
+  "silt", "silt", "g kg^-1",
+  "soc", "soil_organic_carbon", "dg kg^-1"
+)
+
+
+soil_vars <- setNames(soil_vars_tbl$full_name, soil_vars_tbl$variable)
+
+
+
+
 # Get altitude and WorldClim data ------------------------------------------------------
 
 # Many lines of this code are from here:
@@ -124,31 +177,8 @@ extent1 <- extent(list(x = long_range1, y = lat_range1))
 worldclim_dat1 <- crop(x = worldclim_dat1, y = extent1)
 alt_data1 <- crop(x = alt_data, y = extent1)
 
-# Names of bioclim variables
-environ_vars <- c(
-  elevation = "Elevation",
-  latitude = "Latitude",
-  longitude = "Longitude",
-  bio1 = 'Annual Mean Temperature',
-  bio2 = 'Mean Diurnal Range',
-  bio3 = 'Isothermality',
-  bio4 = 'Temperature Seasonality',
-  bio5 = 'Max Temperature of Warmest Month',
-  bio6 = 'Min Temperature of Coldest Month',
-  bio7 = 'Temperature Annual Range',
-  bio8 = 'Mean Temperature of Wettest Quarter',
-  bio9 = 'Mean Temperature of Driest Quarter',
-  bio10 = 'Mean Temperature of Warmest Quarter',
-  bio11 = 'Mean Temperature of Coldest Quarter',
-  bio12 = 'Annual Precipitation',
-  bio13 = 'Precipitation of Wettest Month',
-  bio14 = 'Precipitation of Driest Month',
-  bio15 = 'Precipitation Seasonality',
-  bio16 = 'Precipitation of Wettest Quarter',
-  bio17 = 'Precipitation of Driest Quarter',
-  bio18 = 'Precipitation of Warmest Quarter',
-  bio19 = 'Precipitation of Coldest Quarter'
-)
+
+
 
 # Combine with temp and precip
 environ_vars <- c(environ_vars,
@@ -235,21 +265,6 @@ url <- "https://files.isric.org/soilgrids/latest/data/"
 igh <- '+proj=igh +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs'
 
 
-
-
-# List of subdirectories of interest
-soil_vars <- c(
-  "bdod" = "bulk_density",
-  "cec" = "cation_exchange_cap",
-  "cfvo" = "course_fragment_content",
-  "clay" = "clay",
-  "nitrogen" = "total_nitrogen",
-  "ocd" = "organic_carbon_density",
-  "phh2o" = "pH",
-  "sand" = "sand",
-  "silt" = "silt",
-  "soc" = "soil_organic_carbon"
-)
 
 soil_vars_df <- tibble(variable = names(soil_vars), full_name = soil_vars, class = "soil")
 
@@ -499,11 +514,17 @@ pca_env1_most_cor <- pca_env1_cor %>%
   top_n(x = ., n = 1, wt = abs(correlation)) %>%
   ungroup()
 
+# For each PC, find the most correlated variable
+pca_env1_cor %>%
+  group_by(PC) %>%
+  top_n(x = ., n = 1, wt = abs(correlation)) %>%
+  ungroup()
+
 # Print
 pca_env1_most_cor %>%
   left_join(., bioclim_vars_df) %>%
   as.data.frame() %>%
-  arrange(PC)
+  arrange(PC, class, desc(abs(correlation)))
 
 # PC1 = precipitation + some soil
 # PC2 = temperature + soil
@@ -525,6 +546,19 @@ eaa_environmental_vars <- bioclim_vars_df %>%
   add_row(variable = str_subset(colnames(eaa_environmental_data), "PC"),
           full_name = variable, class = "principal_component") %>%
   filter(variable %in% env_variables_of_interest)
+
+# Add units from above
+eaa_environmental_vars <- eaa_environmental_vars %>%
+  mutate(variable_join = str_remove_all(variable, "_topsoil|_subsoil")) %>%
+  left_join(., select(bind_rows(environ_vars_tbl, soil_vars_tbl), variable, unit),
+            by = c("variable_join" = "variable")) %>%
+  mutate(unit = case_when(
+    variable %in% str_subset(names(environ_vars), "^tm") ~ "C",
+    variable %in% str_subset(names(environ_vars), "^prec") ~ "mm",
+    unit == "" ~ as.character(NA),
+    TRUE ~ as.character(unit))
+  ) %>%
+  select(-variable_join)
 
 
 # Save everything
