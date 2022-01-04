@@ -27,6 +27,7 @@ geno_dir <- file.path(cran_dir, "Genotyping/MarkerDatabase")
 
 ## User parameters
 max_LD_r2 <- 0.99999 # Max LD of any one pair of markers
+max_LD_r2_2 <- 0.90
 min_mac <- 10 # Minimum minor allele count
 max_indiv_miss <- 0.7
 max_snp_miss <- 0.7
@@ -76,58 +77,77 @@ hist(maf_breeding, main = "MAF breeding accessions - prefilter")
 par(mfrow = c(1,1))
 
 
-# First filter for LD and monomorphic SNPs
-geno_mat_wild1 <- prune_LD(x = geno_mat_wild[, maf_wild > 0], r2.max = max_LD_r2)
-geno_mat_wild1 <- geno_mat_wild1[,!is.na(colnames(geno_mat_wild1))]
+# Remove identical (i.e. all hets)
+genotypes_per_marker <- apply(X = geno_mat_wild, MARGIN = 2, FUN = n_distinct)
+geno_mat_wild1 <- geno_mat_wild[,genotypes_per_marker > 1, drop = FALSE]
+maf_wild <- calc_maf(x = geno_mat_wild1)
 
+
+# First filter out SNPs that are monomorphic or in complete LD
+geno_mat_wild_filter1 <- prune_LD(x = geno_mat_wild1[, maf_wild > 0], r2.max = max_LD_r2)
+geno_mat_wild_filter1 <- geno_mat_wild_filter1[,!is.na(colnames(geno_mat_wild_filter1))]
+
+# Dimensions
+dim(geno_mat_wild_filter1)
 
 ## Calculate relationship matrices
 # Wild cranberry
-K_wild <- A.mat(X = geno_mat_wild1, min.MAF = 0, max.missing = 1)
+K_wild <- A.mat(X = geno_mat_wild_filter1, min.MAF = 0, max.missing = 1)
 
 # Calculate the K matrix with wild and native selection samples
-K_all <- A.mat(X = rbind(geno_mat_wild1, rbind(geno_mat_native, geno_mat_breeding)[,colnames(geno_mat_wild1)]),
+K_all <- A.mat(X = rbind(geno_mat_wild_filter1, rbind(geno_mat_native, geno_mat_breeding)[,colnames(geno_mat_wild_filter1)]),
                min.MAF = 0, max.missing = 1)
 
 
-# Next filter those SNPs for higher MAF
-geno_mat_wild2 <- filter_snps(x = geno_mat_wild1, r2.max = max_LD_r2, maf.min = min_mac / nrow(geno_mat_wild1),
-                              indiv.miss.max = max_indiv_miss, snp.miss.max = max_snp_miss)
+# Next filter on MAF - this will be used to calculate LD
+geno_mat_wild_filter2 <- filter_snps(x = geno_mat_wild_filter1, r2.max = max_LD_r2, maf.min = min_mac / nrow(geno_mat_wild_filter1),
+                                     indiv.miss.max = max_indiv_miss, snp.miss.max = max_snp_miss)
+geno_mat_wild_filter2 <- geno_mat_wild_filter2[,!is.na(colnames(geno_mat_wild_filter2))]
 
-# Remove identical (i.e. all hets)
-genotypes_per_marker <- apply(X = geno_mat_wild2, MARGIN = 2, FUN = n_distinct)
-geno_mat_wild2 <- geno_mat_wild2[,genotypes_per_marker > 1, drop = FALSE]
+# Dimensions
+dim(geno_mat_wild_filter2)
+
+# Now filter on MAF AND a lower LD threshold - these will be used for mapping
+geno_mat_wild_filter3 <- filter_snps(x = geno_mat_wild_filter1, r2.max = max_LD_r2_2,
+                                     maf.min = min_mac / nrow(geno_mat_wild_filter1),
+                                     indiv.miss.max = max_indiv_miss, snp.miss.max = max_snp_miss)
+geno_mat_wild_filter3 <- geno_mat_wild_filter3[,!is.na(colnames(geno_mat_wild_filter3))]
+
+# Dimensions
+dim(geno_mat_wild_filter3)
+
+
 
 
 # Recalculate and visualize MAF
-maf <- calc_maf(x = geno_mat_wild2); hist(maf, main = "MAF - postfilter")
+maf <- calc_maf(x = geno_mat_wild_filter3); hist(maf, main = "MAF - postfilter")
 
 # Filter for those same SNPs in the haplo array
-haplo_array_wild1 <- haplo_array_wild[,colnames(geno_mat_wild2),]
+haplo_array_wild_filter3 <- haplo_array_wild[,colnames(geno_mat_wild_filter3),]
 
 ## Filter the entire marker genotype matrix and haplotype matrix for these markers
-geno_mat_all <- phased_geno_mat[row.names(K_all),colnames(geno_mat_wild2)] - 1
-haplo_array_all <- phased_geno_haplo_array[,colnames(geno_mat_wild2),row.names(K_all)]
+geno_mat_all_filter3 <- phased_geno_mat[row.names(K_all),colnames(geno_mat_wild_filter3)] - 1
+haplo_array_all_filter3 <- phased_geno_haplo_array[,colnames(geno_mat_wild_filter3),row.names(K_all)]
 
 
 # Rename and save
-geno_mat_wild <- geno_mat_wild2
-haplo_array_wild <- haplo_array_wild1
-geno_hmp_wild <- t(geno_mat_wild) %>%
+geno_hmp_wild_filter3 <- t(geno_mat_wild_filter3) %>%
   as.data.frame() %>%
   rownames_to_column("marker") %>%
-  filter(marker %in% colnames(geno_mat_wild)) %>%
+  filter(marker %in% colnames(geno_mat_wild_filter3)) %>%
   inner_join(snp_info, .) %>%
-  select(marker:alleles, row.names(geno_mat_wild))
+  select(marker:alleles, row.names(geno_mat_wild_filter3))
 
 
 # Filter snp_info
-snp_info <- snp_info %>%
-  filter(marker %in% colnames(geno_mat_wild))
+snp_info_all <- snp_info
+snp_info <- snp_info_all %>%
+  filter(marker %in% colnames(geno_mat_wild_filter3))
 
 
-save("geno_mat_wild", "haplo_array_wild", "geno_mat_all", "haplo_array_all", "geno_hmp_wild",
-     "K_wild", "K_all", "snp_info", "pop_metadata",
+save("geno_mat_wild_filter2", "geno_mat_wild_filter3", "haplo_array_wild_filter3",
+     "geno_mat_all_filter3", "haplo_array_all_filter3", "geno_hmp_wild_filter3",
+     "K_wild", "K_all", "snp_info", "snp_info_all", "pop_metadata",
      file = file.path(data_dir, "population_metadata_and_genotypes.RData"))
 
 
@@ -138,7 +158,7 @@ data("vcfR_test")
 
 # First create a data.frame of the fixed section
 vcf_fixed <- snp_info %>%
-  filter(marker %in% colnames(haplo_array_wild)) %>%
+  filter(marker %in% colnames(haplo_array_wild_filter3)) %>%
   separate(alleles, c("ref", "alt"), sep = "/") %>%
   rename_all(toupper) %>%
   select(CHROM, POS, ID = MARKER, names(.)) %>%
@@ -147,7 +167,7 @@ vcf_fixed <- snp_info %>%
   as.matrix()
 
 # Create the genotype section
-vcf_gt <- apply(X = haplo_array_wild, MARGIN = c(2, 3), FUN = function(genotype) paste0(genotype, collapse = "|") ) %>%
+vcf_gt <- apply(X = haplo_array_wild_filter3, MARGIN = c(2, 3), FUN = function(genotype) paste0(genotype, collapse = "|") ) %>%
   as.data.frame() %>%
   .[vcf_fixed[,"ID"],] %>%
   cbind(FORMAT = "GT", .) %>%
@@ -169,7 +189,7 @@ vcf_wild@fix <- vcf_fixed
 vcf_wild@gt <- vcf_gt
 
 # Write the VCF
-vcf_file <- file.path(data_dir, "wild_cranberry_cleaned_genotypes.vcf.gz")
+vcf_file <- file.path(data_dir, "wild_cranberry_cleaned_genotypes_filter3.vcf.gz")
 write.vcf(x = vcf_wild, file = vcf_file)
 
 

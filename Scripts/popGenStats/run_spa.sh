@@ -8,7 +8,7 @@
 ##
 
 # Path to the input files
-pedbase="Data/wild_cranberry_cleaned_genotypes"
+pedbase="Data/wild_cranberry_cleaned_genotypes_filter3"
 
 # Path to the location file
 locfile="Data/wild_cranberry_spa_location_input.txt"

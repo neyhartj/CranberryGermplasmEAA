@@ -28,10 +28,10 @@ germ_meta1 <- pop_metadata %>%
 # Calculate LD decay ------------------------------------------------------
 
 # Read in the vcf- this is PHASED data
-vcf <- vcfR::read.vcfR(file = file.path(data_dir, "wild_cranberry_cleaned_genotypes.vcf.gz"))
+vcf <- vcfR::read.vcfR(file = file.path(data_dir, "wild_cranberry_cleaned_genotypes_filter3.vcf.gz"))
 
-snp_info1 <- snp_info %>%
-  filter(marker %in% colnames(geno_mat_wild)) %>%
+snp_info1 <- snp_info_all %>%
+  filter(marker %in% colnames(geno_mat_wild_filter2)) %>%
   select(Locus = marker, LG = chrom, Position = pos) %>%
   as.data.frame()
 
@@ -42,15 +42,24 @@ ld_wild <- snp_info1 %>%
   map(~{
     # Subset markers from this chrom; create a snpMatrix object
     markers <- .x$Locus
-    snpMat <- vcfR2SnpMatrix(obj = vcf[which(vcf@fix[,"ID"] %in% markers),], phased = TRUE)
+    # snpMat <- vcfR2SnpMatrix(obj = vcf[which(vcf@fix[,"ID"] %in% markers),], phased = TRUE)
+    snpMat <- as(geno_mat_wild_filter2[,markers, drop = FALSE] + 1, "SnpMatrix")
+
     # Physical distances
     bp_dist <- .x$Position
 
+    # # Calculate LD
+    # ld_D <- LDheatmap(gdat = snpMat$data, genetic.distances = bp_dist, distances = "physical", LDmeasure = "D",
+    #                   add.map = FALSE, flip = TRUE)
+    # # Calculate LD
+    # ld_r <- LDheatmap(gdat = snpMat$data, genetic.distances = bp_dist, distances = "physical", LDmeasure = "r",
+    #                   add.map = FALSE, flip = TRUE)
+
     # Calculate LD
-    ld_D <- LDheatmap(gdat = snpMat$data, genetic.distances = bp_dist, distances = "physical", LDmeasure = "D",
+    ld_D <- LDheatmap(gdat = snpMat, genetic.distances = bp_dist, distances = "physical", LDmeasure = "D",
                       add.map = FALSE, flip = TRUE)
     # Calculate LD
-    ld_r <- LDheatmap(gdat = snpMat$data, genetic.distances = bp_dist, distances = "physical", LDmeasure = "r",
+    ld_r <- LDheatmap(gdat = snpMat, genetic.distances = bp_dist, distances = "physical", LDmeasure = "r",
                       add.map = FALSE, flip = TRUE)
 
 
@@ -73,11 +82,15 @@ ld_wild <- snp_info1 %>%
 
 
     # Simple correlation matrix
-    ld_cor2 <- (cor(geno_mat_wild[,markers])^2) %>%
+    ld_cor2 <- (cor(geno_mat_wild_filter2[,markers])^2) %>%
       as.dist() %>%
       broom::tidy() %>%
       rename(marker1 = item1, marker2 = item2, cor2 = distance) %>%
       left_join(ld_df2, ., by = c("marker1", "marker2"))
+
+    # Return
+    ld_cor2
+
 
   })
 
@@ -89,7 +102,7 @@ ld_wild_df <- imap_dfr(ld_wild, ~mutate(.x, LG = .y))
 # Plot
 g_ld_wild <- ld_wild_df %>%
   filter(LG == "08") %>%
-  ggplot(aes(x = bp_dist, y = cor2)) +
+  ggplot(aes(x = bp_dist, y = D)) +
   geom_point(size = 0.5) +
   facet_wrap(~ LG) +
   theme_classic()
@@ -177,9 +190,8 @@ ld_wild_decay %>%
 ld_wild_decay %>%
   summarize(mean_half_life = mean(half_bp), min_half_life = min(half_bp), max_half_life = max(half_bp))
 
-# # A tibble: 1 x 3
 # mean_half_life min_half_life max_half_life
-# 1         21997.         8996.        40233
+#   1         23512.         9247.        43609.
 
 
 # When does LD fall below 0.3, 0.2, 0.1?
@@ -202,7 +214,7 @@ ld_wild_decay %>%
 
 # Calculate pairwise distance between individuals -------------------------
 
-pairwise_dist <- dist.gene(x = geno_mat_wild, method = "percentage")
+pairwise_dist <- dist.gene(x = geno_mat_wild_filter3, method = "percentage")
 
 # Convert to df
 pairwise_dist_df <- broom::tidy(pairwise_dist) %>%
@@ -234,13 +246,13 @@ pairwise_dist_data <- pairwise_dist_df1
 
 # Split individuals by population
 indiv_per_pop <- germ_meta1 %>%
-  filter(individual %in% rownames(geno_mat_wild)) %>%
+  filter(individual %in% rownames(geno_mat_wild_filter3)) %>%
   split(.$location_abbr) %>%
   map("individual")
 
 pop_seg_sites <- indiv_per_pop %>%
   imap_dfr(~{
-    mat1 <- geno_mat_wild[.x,, drop = FALSE]
+    mat1 <- geno_mat_wild_filter3[.x,, drop = FALSE]
     ref_allele_freq <- colMeans(mat1 + 1) / 2
     tibble(location_abbr = .y, nSegSites = sum(ref_allele_freq < 1 & ref_allele_freq > 0)) %>%
       mutate(propSegsites = nSegSites / ncol(mat1), popSize = nrow(mat1))
@@ -274,9 +286,45 @@ pop_private_alleles <- indiv_per_pop %>%
     # List all remaining individuals from other pops
     .x1 <- setdiff(unlist(indiv_per_pop), .x)
     # Find the SNPs that are not segregating in these remaining individuals
-    nGenoPerSnp <- apply(geno_mat_wild[.x1, , drop = FALSE], 2, n_distinct)
+    nGenoPerSnp <- apply(geno_mat_wild_filter3[.x1, , drop = FALSE], 2, n_distinct)
     sum(nGenoPerSnp == 1)
   })
+
+
+
+
+# # Calculate nuceotide diversity -------------------------------------------
+#
+# # THIS IS DONE USING VCFTOOLS IN CERES #
+#
+# # Read in the results
+# nucle_div <- read_tsv(file = file.path(result_dir, "wild_cranberry_cleaned_genotypes_nucleotide_diversity.sites.pi"))
+#
+# # Combine with SNP info
+# snp_nucleo_div <- nucle_div %>%
+#   rename_all(tolower) %>%
+#   left_join(snp_info, .)
+#
+# # Window sizes
+# window_size <- 1000000
+#
+# # Sliding window average
+# snp_nucleo_div_slide <- snp_nucleo_div %>%
+#   split(.$chrom) %>%
+#   map_df(~{
+#     # Create windows
+#     pos_breaks <- seq(0, max(pretty(.x$pos)), by = window_size)
+#     # Summarize within these breaks; output
+#     tibble(chrom = unique(.x$chrom), pos = head(pos_breaks, -1),
+#            pi_mean = map_dbl(split(.x$pi, cut(.x$pos, breaks = pos_breaks)), mean))
+#   })
+#
+# # Plot
+# snp_nucleo_div_slide %>%
+#   ggplot(aes(x = pos, y = pi_mean)) +
+#   geom_line() +
+#   facet_wrap(~ chrom, ncol = 4)
+#
 
 
 
@@ -303,28 +351,25 @@ spa_out <- read_tsv(file.path(result_dir, "wild_cranberry_knownGeo_spa.out"),
 
 # DF with population indicators
 pop_df <- pop_metadata %>%
-  filter(individual %in% row.names(geno_mat_wild)) %>%
+  filter(individual %in% row.names(geno_mat_wild_filter3)) %>%
   select(individual, population = location_of_origin)
 
 # Format the data at once
-geno_mat_wild_hierfFormat <- apply(X = geno_mat_wild + 1, MARGIN = 2, FUN = function(snp) {
+geno_mat_wild_hierfFormat <- apply(X = geno_mat_wild_filter3 + 1, MARGIN = 2, FUN = function(snp) {
   as.numeric(str_replace_all(snp, c("2" = "22", "1" = "12", "0" = "11")))
 })
-row.names(geno_mat_wild_hierfFormat) <- row.names(geno_mat_wild)
+row.names(geno_mat_wild_hierfFormat) <- row.names(geno_mat_wild_filter3)
 
 # Combine pop_df and geno_mat_wild_native_hierfFormat
 data_for_fstat <- cbind(pop_df, as.data.frame(geno_mat_wild_hierfFormat)) %>%
   remove_rownames() %>%
   column_to_rownames("individual")
 
-# Calculate basic stats
-# basic_stats_out <- basic.stats(data = data_for_fstat, diploid = TRUE)
-
 # Use the Weir and Cockeram Fst estimate
 wc_fst <- wc(ndat = data_for_fstat, diploid = TRUE)
 
 # Create a summary data.frame per locus
-global_marker_fst <- geno_hmp_wild %>%
+global_marker_fst <- geno_hmp_wild_filter3 %>%
   select(marker, chrom, pos) %>%
   # left_join(., basic_stats_out$perloc %>% as.data.frame() %>% rownames_to_column("marker"))
   left_join(., rownames_to_column(wc_fst$per.loc, "marker") %>% rename(Fst = FST, Fis = FIS))
@@ -332,132 +377,73 @@ global_marker_fst <- geno_hmp_wild %>%
 # Save global Fst
 (global_fst <- wc_fst$FST)
 
-# Split populations by latitude
-pop_latitude_split <- germ_meta1 %>%
-  filter(individual %in% row.names(data_for_fstat)) %>%
-  mutate(population = ifelse(latitude < 43, "lower_latitude", "upper_latitude")) %>%
-  select(individual, location = location_of_origin, population) %>%
-  as.data.frame() %>%
-  right_join(., rownames_to_column(data_for_fstat, "individual"), by = c("location" = "population", "individual")) %>%
-  select(population, names(.), -location) %>%
-  column_to_rownames("individual")
-
-# Calcualate FST
-wc_fst_latitude <- wc(ndat = pop_latitude_split, diploid = TRUE)
-
-# Create a summary data.frame per locus
-latitude_marker_fst <- snp_info %>%
-  left_join(., rownames_to_column(wc_fst_latitude$per.loc, "marker") %>% rename(Fst = FST, Fis = FIS))
-
-
-# Split populations by elevation
-pop_elevation_split <- germ_meta1 %>%
-  filter(individual %in% row.names(data_for_fstat)) %>%
-  left_join(., select(eaa_environmental_data, location_abbr, elevation)) %>%
-  mutate(population = ifelse(elevation < 100, "lower_elevation", "upper_elevation")) %>%
-  select(individual, location = location_of_origin, population) %>%
-  as.data.frame() %>%
-  right_join(., rownames_to_column(data_for_fstat, "individual"), by = c("location" = "population", "individual")) %>%
-  select(population, names(.), -location) %>%
-  column_to_rownames("individual")
-
-# Calcualate FST
-wc_fst_elevation <- wc(ndat = pop_elevation_split, diploid = TRUE)
-
-# Create a summary data.frame per locus
-elevation_marker_fst <- snp_info %>%
-  left_join(., rownames_to_column(wc_fst_elevation$per.loc, "marker") %>% rename(Fst = FST, Fis = FIS))
-
-
-# Plot
-elevation_marker_fst %>%
-  mutate(chrom = parse_number(chrom), even_chrom = chrom %% 2 == 0) %>%
-  ggplot(aes(x = pos, y = Fst, color = even_chrom)) +
-  geom_hline(yintercept = quantile(elevation_marker_fst$Fst, 0.999), lty = 2) +
-  geom_point() +
-  scale_color_discrete(guide = FALSE) +
-  scale_x_continuous() +
-  facet_grid(~ chrom, scales = "free_x", switch = "x") +
-  theme_classic() +
-  theme(panel.spacing.x = unit(0, "line"))
-
-# Plotly
-# plotly::ggplotly(g_fst)
-
-
-# List SNPs that exceed the empirical threshold
-global_marker_fst_wild_outlier <- global_marker_fst_wild %>%
-  filter(Fst >= fst_cutoff) %>%
-  arrange(desc(Fst))
+## Calculate pairwise Fst
+pairwise_fst <- pairwise.WCfst(dat = data_for_fstat, diploid = TRUE)
 
 
 
-# Pairwise Fst between wild/native/breeding -------------------------------
+#
+# # Split populations by latitude
+# pop_latitude_split <- germ_meta1 %>%
+#   filter(individual %in% row.names(data_for_fstat)) %>%
+#   mutate(population = ifelse(latitude < 43, "lower_latitude", "upper_latitude")) %>%
+#   select(individual, location = location_of_origin, population) %>%
+#   as.data.frame() %>%
+#   right_join(., rownames_to_column(data_for_fstat, "individual"), by = c("location" = "population", "individual")) %>%
+#   select(population, names(.), -location) %>%
+#   column_to_rownames("individual")
+#
+# # Calcualate FST
+# wc_fst_latitude <- wc(ndat = pop_latitude_split, diploid = TRUE)
+#
+# # Create a summary data.frame per locus
+# latitude_marker_fst <- snp_info %>%
+#   left_join(., rownames_to_column(wc_fst_latitude$per.loc, "marker") %>% rename(Fst = FST, Fis = FIS))
+#
+#
+# # Split populations by elevation
+# pop_elevation_split <- germ_meta1 %>%
+#   filter(individual %in% row.names(data_for_fstat)) %>%
+#   left_join(., select(eaa_environmental_data, location_abbr, elevation)) %>%
+#   mutate(population = ifelse(elevation < 100, "lower_elevation", "upper_elevation")) %>%
+#   select(individual, location = location_of_origin, population) %>%
+#   as.data.frame() %>%
+#   right_join(., rownames_to_column(data_for_fstat, "individual"), by = c("location" = "population", "individual")) %>%
+#   select(population, names(.), -location) %>%
+#   column_to_rownames("individual")
+#
+# # Calcualate FST
+# wc_fst_elevation <- wc(ndat = pop_elevation_split, diploid = TRUE)
+#
+# # Create a summary data.frame per locus
+# elevation_marker_fst <- snp_info %>%
+#   left_join(., rownames_to_column(wc_fst_elevation$per.loc, "marker") %>% rename(Fst = FST, Fis = FIS))
+#
+#
+# # Plot
+# elevation_marker_fst %>%
+#   mutate(chrom = parse_number(chrom), even_chrom = chrom %% 2 == 0) %>%
+#   ggplot(aes(x = pos, y = Fst, color = even_chrom)) +
+#   geom_hline(yintercept = quantile(elevation_marker_fst$Fst, 0.999), lty = 2) +
+#   geom_point() +
+#   scale_color_discrete(guide = FALSE) +
+#   scale_x_continuous() +
+#   facet_grid(~ chrom, scales = "free_x", switch = "x") +
+#   theme_classic() +
+#   theme(panel.spacing.x = unit(0, "line"))
+#
+# # Plotly
+# # plotly::ggplotly(g_fst)
+#
+#
+# # List SNPs that exceed the empirical threshold
+# global_marker_fst_wild_outlier <- global_marker_fst_wild %>%
+#   filter(Fst >= fst_cutoff) %>%
+#   arrange(desc(Fst))
 
-# DF with population indicators
-pop_df <- pop_metadata %>%
-  filter(individual %in% row.names(geno_mat_all)) %>%
-  select(individual, population = category)
 
-# Format the data at once
-geno_mat_all_hierfFormat <- apply(X = geno_mat_all + 1, MARGIN = 2, FUN = function(snp) {
-  as.numeric(str_replace_all(snp, c("2" = "22", "1" = "12", "0" = "11")))
-})
-row.names(geno_mat_all_hierfFormat) <- row.names(geno_mat_all)
-
-# Combine pop_df and geno_mat_wild_native_hierfFormat
-data_for_fstat <- cbind(pop_df, as.data.frame(geno_mat_all_hierfFormat)) %>%
-  remove_rownames() %>%
-  column_to_rownames("individual")
-
-# Calculate basic stats
-# basic_stats_out <- basic.stats(data = data_for_fstat, diploid = TRUE)
-
-# Use the Weir and Cockeram Fst estimate
-wc_fst_WildNative <- wc(ndat = subset(data_for_fstat, population != "Breeding"), diploid = TRUE)
-wc_fst_WildBreeding <- wc(ndat = subset(data_for_fstat, population != "NativeSelection"), diploid = TRUE)
-wc_fst_NativeBreeding <- wc(ndat = subset(data_for_fstat, population != "Wild"), diploid = TRUE)
-
-
-wc_fst_WildNative$per.loc %>%
-  rownames_to_column("marker") %>%
-  left_join(., snp_info) %>%
-  mutate(chrom = parse_number(chrom), even_chrom = chrom %% 2 == 0) %>%
-  ggplot(aes(x = pos, y = FST, color = even_chrom)) +
-  geom_hline(yintercept = quantile(wc_fst_WildNative$per.loc$FST, 0.999), lty = 2) +
-  geom_point() +
-  scale_color_discrete(guide = FALSE) +
-  scale_x_continuous() +
-  facet_grid(~ chrom, scales = "free_x", switch = "x") +
-  theme_classic() +
-  theme(panel.spacing.x = unit(0, "line"))
-
-wc_fst_WildBreeding$per.loc %>%
-  rownames_to_column("marker") %>%
-  left_join(., snp_info) %>%
-  mutate(chrom = parse_number(chrom), even_chrom = chrom %% 2 == 0) %>%
-  ggplot(aes(x = pos, y = FST, color = even_chrom)) +
-  geom_hline(yintercept = quantile(wc_fst_WildBreeding$per.loc$FST, 0.999), lty = 2) +
-  geom_point() +
-  scale_color_discrete(guide = FALSE) +
-  scale_x_continuous() +
-  facet_grid(~ chrom, scales = "free_x", switch = "x") +
-  theme_classic() +
-  theme(panel.spacing.x = unit(0, "line"))
-
-wc_fst_NativeBreeding$per.loc %>%
-  rownames_to_column("marker") %>%
-  left_join(., snp_info) %>%
-  mutate(chrom = parse_number(chrom), even_chrom = chrom %% 2 == 0) %>%
-  ggplot(aes(x = pos, y = FST, color = even_chrom)) +
-  geom_hline(yintercept = quantile(wc_fst_NativeBreeding$per.loc$FST, 0.999, na.rm = TRUE), lty = 2) +
-  geom_point() +
-  scale_color_discrete(guide = FALSE) +
-  scale_x_continuous() +
-  facet_grid(~ chrom, scales = "free_x", switch = "x") +
-  theme_classic() +
-  theme(panel.spacing.x = unit(0, "line"))
-
+## Other population genetic stats
+fst_basic_stats <- basic.stats(data = data_for_fstat, diploid = TRUE)
 
 
 # Conduct mantel test between pairwise genetic distance and geogra --------
@@ -467,34 +453,43 @@ wc_fst_NativeBreeding$per.loc %>%
 
 # Convert the pairwise genetic distance df to a matrix
 
-pairwise_dist <- pairwise_dist_data %>%
-  select(contains("individual"), distance) %>%
-  spread(individual1, distance) %>%
-  as.data.frame() %>%
-  column_to_rownames("individual2") %>%
-  as.dist()
-
 # Pairwise distance of individuals
-pairwise_geo_dist <- germ_meta1 %>%
-  filter(individual %in% row.names(geno_mat_wild)) %>%
-  select(individual, latitude = origin_latitude, longitude = origin_longitude) %>%
+pairwise_geo_dist_indiv <- germ_meta1 %>%
+  filter(individual %in% row.names(geno_mat_wild_filter3)) %>%
+  select(individual, latitude, longitude) %>%
   crossing(., ., .name_repair = tidyr_legacy) %>%
   mutate(gcd = geosphere::distGeo(p1 = select(., longitude, latitude), p2 = select(., longitude1, latitude1))) %>%
   select(individual, individual1, gcd) %>%
   # Filter
-  filter_at(vars(contains("individual")), all_vars(. %in% unique(pairwise_dist_data$individual1))) %>%
+  filter_at(vars(contains("individual")), all_vars(. %in% row.names(as.matrix(pairwise_dist)))) %>%
   spread(individual, gcd) %>%
   as.data.frame() %>%
   column_to_rownames("individual1") %>%
   as.dist()
 
 # Conduct mantel test
-mantel_out <- vegan::mantel(xdis = pairwise_dist, ydis = pairwise_geo_dist, )
+mantel_out <- vegan::mantel(xdis = pairwise_dist, ydis = pairwise_geo_dist_indiv)
 
 mantel_out
 
-# It is significant, but the problem is the relationships is not really linear
+# Pairwise distance of locations
+pairwise_geo_dist_loc <- germ_meta1 %>%
+  filter(individual %in% row.names(geno_mat_wild_filter3)) %>%
+  distinct(location_of_origin, latitude, longitude) %>%
+  crossing(., ., .name_repair = tidyr_legacy) %>%
+  mutate(gcd = geosphere::distGeo(p1 = select(., longitude, latitude), p2 = select(., longitude1, latitude1))) %>%
+  select(location_of_origin, location_of_origin1, gcd) %>%
+  # Filter
+  filter_at(vars(contains("location_of_origin")), all_vars(. %in% row.names(pairwise_fst))) %>%
+  spread(location_of_origin, gcd) %>%
+  as.data.frame() %>%
+  column_to_rownames("location_of_origin1") %>%
+  as.dist()
 
+# Conduct mantel test
+mantel_out <- vegan::mantel(xdis = as.dist(pairwise_fst), ydis = pairwise_geo_dist_loc)
+
+mantel_out
 
 
 
@@ -503,7 +498,7 @@ mantel_out
 
 
 # Save the results
-save("global_marker_fst", "global_fst", "pairwise_wc_fst", "spa_out",
-     "ld_wild_decay", "ld_wild_df", "pairwise_dist_data", "wc_fst_WildNative", "wc_fst_WildBreeding", "wc_fst_NativeBreeding",
+save("global_marker_fst", "global_fst", "fst_basic_stats", "spa_out", "ld_wild_decay", "ld_wild_df",
+     "pairwise_dist_data", "pairwise_fst",
      file = file.path(result_dir, "population_genetics_stats.RData"))
 

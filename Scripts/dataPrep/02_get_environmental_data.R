@@ -474,7 +474,7 @@ if (exclude_monthly_bioclim) {
 
 
 
-## Analyze principal components
+# Principal component analysis of all variables ---------------------------
 
 # Center and scale
 # Convert the data to a matrix
@@ -489,46 +489,36 @@ location_bioclim_data_scaled_mat <- location_bioclim_data_scaled %>%
   as.matrix()
 
 ## Run PCA
-pca_env1 <- prcomp(location_bioclim_data_scaled_mat, retx = TRUE)
+pca_env1 <- prcomp(x = location_bioclim_data_scaled_mat, retx = TRUE)
 # Examine proportion of variance explained
 pca_env1_propvar <- (pca_env1$sdev^2)/sum(pca_env1$sdev^2)
 # Cumulative sum
-cumsum(pca_env1_propvar)
+(pc_varexp <- cumsum(pca_env1_propvar))
+
+# Extract the PCs that together explain more than 90% of the variance
 # Tidy
 pca_env1_tidy <- broom::tidy(pca_env1) %>%
-  filter(PC %in% 1:3) %>%
+  filter(PC %in% seq_len(max(which(pc_varexp <= 0.90)) + 1)) %>%
   rename(location_abbr = row)
 
 
-
-# Correlate each variable with each of the first 3 PCs
-pca_env1_cor <- pca_env1_tidy %>%
-  full_join(., gather(location_bioclim_data_scaled, variable, value1, -location_abbr)) %>%
-  filter(variable %in% row.names(pca_env1$rotation)) %>%
-  group_by(variable, PC) %>%
-  summarize(correlation = cor(value1, value), .groups = "drop")
-
-# For each variable, find the most correlated PC
-pca_env1_most_cor <- pca_env1_cor %>%
-  group_by(variable) %>%
-  top_n(x = ., n = 1, wt = abs(correlation)) %>%
-  ungroup()
-
-# For each PC, find the most correlated variable
-pca_env1_cor %>%
-  group_by(PC) %>%
-  top_n(x = ., n = 1, wt = abs(correlation)) %>%
-  ungroup()
-
-# Print
-pca_env1_most_cor %>%
-  left_join(., bioclim_vars_df) %>%
+# Create a table of loadings for each of these PCs
+pca_env1_loadings_tidy <- pca_env1$rotation[,unique(pca_env1_tidy$PC),drop = FALSE] %>%
   as.data.frame() %>%
-  arrange(PC, class, desc(abs(correlation)))
+  rownames_to_column("variable") %>%
+  gather(PC, loading, -variable) %>%
+  as_tibble() %>%
+  # arrange by PC and then loading
+  arrange(PC, desc(abs(loading)))
 
-# PC1 = precipitation + some soil
-# PC2 = temperature + soil
-# PC3 = soil
+# Create a nice table of the variables with the highest-magnitude loading for each PC
+pca_env_max_loadings <- pca_env1_loadings_tidy %>%
+  group_by(PC) %>%
+  top_n(x = ., n = 1, wt = abs(loading)) %>%
+  ungroup() %>%
+  left_join(., select(eaa_environmental_vars, variable, full_name)) %>%
+  mutate(prop_var_exp = pca_env1_propvar[seq_len(nrow(.))]) %>%
+  select(PC, prop_var_exp, variable, full_name, loading)
 
 
 # Append the variables of interest object
@@ -562,37 +552,29 @@ eaa_environmental_vars <- eaa_environmental_vars %>%
 
 
 # Save everything
-save("eaa_environmental_data", "eaa_environmental_vars", "env_variables_of_interest",
+save("eaa_environmental_data", "eaa_environmental_vars", "env_variables_of_interest", "pca_env1_loadings_tidy",
+     "pca_env_max_loadings",
      file = file.path(data_dir, "germplasm_origin_bioclim_data.RData"))
 
 
 
-# Create the location file for sambada
-pop_metadata %>%
-  left_join(., select(eaa_environmental_data, location_of_origin, location_abbr)) %>%
-  filter(individual %in% row.names(geno_mat_wild)) %>%
-  select(individual, latitude, longitude) %>%
-  mutate(familyID = 0, paternalID = 0, maternalID = 0, sex = 0, phenotype = -9) %>%
-  select(familyID, individualID = individual, paternalID, maternalID, sex, phenotype,
-         lat = latitude, long = longitude) %>%
-  write_tsv(x = ., file = file.path(data_dir, "wild_cranberry_spa_location_input.txt"), col_names = FALSE)
+# Other unused code -------------------------------------
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# # Save raster files for each variable -------------------------------------
+#
+# # Create the location file for sambada
+# pop_metadata %>%
+#   left_join(., select(eaa_environmental_data, location_of_origin, location_abbr)) %>%
+#   filter(individual %in% row.names(geno_mat_wild)) %>%
+#   select(individual, latitude, longitude) %>%
+#   mutate(familyID = 0, paternalID = 0, maternalID = 0, sex = 0, phenotype = -9) %>%
+#   select(familyID, individualID = individual, paternalID, maternalID, sex, phenotype,
+#          lat = latitude, long = longitude) %>%
+#   write_tsv(x = ., file = file.path(data_dir, "wild_cranberry_spa_location_input.txt"), col_names = FALSE)
+#
+#
+#
+#
 #
 # # Range in lat/long for locations
 # lat_range <- range(pretty(eaa_environmental_data$latitude))

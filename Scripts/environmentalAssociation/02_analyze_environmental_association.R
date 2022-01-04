@@ -39,6 +39,10 @@ eaa_environmental_data1 <- eaa_environmental_data %>%
   select(location_abbr, all_of(eaa_environmental_vars$variable))
 
 
+# Rename genotype matrices
+geno_mat_wild <- geno_mat_wild_filter3
+geno_hmp_wild <- geno_hmp_wild_filter3
+geno_mat_all <- geno_mat_all_filter3
 
 
 # Prepare the bioclim data ------------------------------------------------
@@ -78,14 +82,6 @@ geno <- geno_hmp_wild %>%
   as.data.frame()
 
 
-# Subset the native selections
-# geno_mat_native <- geno_mat_all[native_sel_meta$germplasm_collection_name,]
-geno_mat_native <- geno_mat_all[intersect(row.names(geno_mat_all), native_selection_germplasm_names),]
-geno_mat_cultivar <- geno_mat_all[intersect(row.names(geno_mat_all), cultivar_germplasm_names),]
-
-
-
-
 
 
 # Compare significant marker alleles with bioclim variables ---------------
@@ -97,23 +93,20 @@ gwas_out_best_model <- gwas_out %>%
 # Count the best models
 xtabs(~ model, p_lambda, subset = best_model == "*")
 
-# Just use model2
-gwas_out_model2 <- subset(gwas_out, model == "model2")
+# Use model2
+gwas_out_best_model <- gwas_out %>% filter(model == "model2")
 
 # Extract the significant markers based on FDR
-egwas_sigmar <- eaa_gwas_best_model_signif_marker <- gwas_out_model2 %>%
-  group_by(model, variable) %>%
-  do({
-    df <- .
-    fdr <- sommer:::fdr(df$p_value, fdr.level = fdr_level)$fdr.10
-    subset(df, p_value <= fdr)
-  }) %>%
-  ungroup() %>%
-  arrange(variable, marker)
+egwas_sigmar <- eaa_gwas_sigmar
 
 # Number of unique markers
 n_distinct(egwas_sigmar$marker)
+
+# 55
+
 n_distinct(egwas_sigmar$variable)
+
+# 28
 
 
 # Number of unique markers per variable
@@ -123,12 +116,16 @@ egwas_sigmar %>%
   xtabs(~ full_name, .) %>%
   sort()
 
+# 1 - 13
+
 # Number of variables per marker
 egwas_sigmar %>%
   left_join(., select(eaa_environmental_vars, -class)) %>%
   subset(variable %in% env_variables_of_interest) %>%
   xtabs(~ marker, .) %>%
   sort()
+
+# 1 - 8
 
 # Number of markers per variable class
 egwas_sigmar %>%
@@ -137,6 +134,13 @@ egwas_sigmar %>%
   group_by(class, variable) %>%
   summarize(nSigMar = n()) %>%
   summarize(nVariable = n_distinct(variable), nSigMar = sum(nSigMar))
+
+# class               nVariable nSigMar
+# 1 geography                   1       4
+# 2 precipitation               3      20
+# 3 principal_component         2       6
+# 4 soil                       15      56
+# 5 temperature                 7      13
 
 
 # Number of unique markers
@@ -213,7 +217,7 @@ intersect(fst_outliers$marker, spa_outliers$marker)
 
 
 # Get the spa_scores for the significant GWAS hits
-eaa_gwas_spa_scores <- eaa_gwas_best_model_signif_marker %>%
+eaa_gwas_spa_scores <- egwas_sigmar %>%
   distinct(marker) %>%
   left_join(., select(spa_results, marker, spa_score))
 
@@ -225,70 +229,128 @@ mean(eaa_gwas_spa_scores$spa_score >= spa_scores_q001)
 # Arrange in descending spa score order
 eaa_gwas_spa_scores %>%
   arrange(desc(spa_score)) %>%
-  left_join(., egwas_sigmar_unique) %>%
+  left_join(., egwas_sigmar) %>%
   # Calculate the percentile of each marker spa
   mutate(spa_percentile = map_dbl(spa_score, ~mean(. >= spa_results$spa_score)))
 
 # Average spa score of GWAS hits
 gwas_mean_spa <- mean(eaa_gwas_spa_scores$spa_score)
 hist(eaa_gwas_spa_scores$spa_score)
+# Number of unique egwas markers
+n_eaa_markers <- length(eaa_gwas_spa_scores$spa_score)
 
 
 ## Randomly sample the same number of background SNPs as GWAS SNPs and compare
 ## mean SPA scores
-spa_out_nogwas_vec <- spa_out %>%
-  subset(x = ., ! marker %in% eaa_gwas_spa_scores$marker, spa_score, drop = TRUE)
+spa_out_nogwas_vec <- subset(x = spa_out, ! marker %in% eaa_gwas_spa_scores$marker, spa_score, drop = TRUE)
 
-random_snps_spa <- replicate(n = 10000, mean(sample(x = spa_out_nogwas_vec, size = nrow(eaa_gwas_spa_scores))))
+set.seed(209)
+random_snps_spa <- replicate(n = 10000, mean(sample(x = spa_out_nogwas_vec, size = n_eaa_markers)))
 
 # P-value for the GWAS SNPs SPA score
 mean(random_snps_spa >= gwas_mean_spa)
 hist(random_snps_spa, breaks = 50); abline(v = gwas_mean_spa, col = "blue")
 
+wilcox.test(x = eaa_gwas_spa_scores$spa_score, y = spa_out_nogwas_vec)
+
+
+# Save this as a figure
+g_random_eaa_spa <- ggplot(data = NULL, aes(x = random_snps_spa)) +
+  geom_histogram(bins = 50, fill = "gray70") +
+  geom_vline(xintercept = gwas_mean_spa, color = "blue") +
+  geom_text(aes(x = gwas_mean_spa, y = 600, label = "EAA signif.\nSNPs"), color = "blue",
+            nudge_x = 0.02, hjust = 0, size = 3) +
+  geom_text(aes(x = min(random_snps_spa), y = 600, label = paste0("Random sets of\n", n_eaa_markers, " SNPS")),
+            color = "gray70", hjust = 1, nudge_x = 0.1, size = 3) +
+  scale_x_continuous(name = "Mean SPA score", breaks = pretty) +
+  scale_y_continuous(name = "Frequency", breaks = pretty) +
+  theme_genetics()
+
+ggsave(filename = "FigureSXX_eaaSPA_versus_randomSPA.jpg", plot = g_random_eaa_spa, path = fig_dir,
+       height = 2, width = 4, dpi = 500)
+
+# Correlation between eaa p-values and SPA
+egwas_score_spa <- gwas_out_best_model %>%
+  filter(variable %in% unique(egwas_sigmar$variable)) %>%
+  left_join(., select(spa_out, marker, spa_score)) %>%
+  group_by(variable) %>%
+  summarize(spa_egwas_cor = cor(sqrt(score), spa_score), .groups = "drop")
+
+
+
 
 ### Do the same thing with fst ###
 
 # Get the fst for the significant GWAS hits
-eaa_gwas_fst <- eaa_gwas_best_model_signif_marker %>%
+eaa_gwas_fst <- eaa_gwas_sigmar %>%
   distinct(marker) %>%
   left_join(., select(global_marker_fst, marker, Fst))
 
 # How many of these are above the threshold?
 sum(eaa_gwas_fst$Fst >= fst_q001)
+# Number of unique egwas markers
+n_eaa_markers <- length(eaa_gwas_fst$Fst)
 
-# 4
+
+# 55
 
 # Intersect eaa_gwas markers and Fst outliers
-intersect(fst_outliers$marker, unique(eaa_gwas_best_model_signif_marker$marker))
+intersect(fst_outliers$marker, unique(eaa_gwas_sigmar$marker))
 
 # 4 markers overlap
 
 # Arrange in descending spa score order
 eaa_gwas_fst %>%
   arrange(desc(Fst)) %>%
-  left_join(., egwas_sigmar_unique) %>%
+  left_join(., egwas_sigmar) %>%
   # Calculate the percentile of each marker Fst
   mutate(fst_percentile = map_dbl(Fst, ~mean(. >= global_marker_fst$Fst)))
 
 # Average spa score of GWAS hits
 gwas_mean_fst <- mean(eaa_gwas_fst$Fst)
-
+hist(eaa_gwas_fst$Fst)
 
 ## Randomly sample the same number of background SNPs as GWAS SNPs and compare
 ## mean SPA scores
-fst_nogwas_vec <- global_marker_fst %>%
-  subset(x = ., ! marker %in% eaa_gwas_fst$marker, Fst, drop = TRUE)
+fst_nogwas_vec <- subset(x = global_marker_fst, ! marker %in% eaa_gwas_fst$marker, Fst, drop = TRUE)
 
+set.seed(209)
 random_snps_fst <- replicate(n = 10000, mean(sample(x = fst_nogwas_vec, size = nrow(eaa_gwas_fst))))
 
 # P-value for the GWAS SNPs SPA score
 mean(random_snps_fst >= gwas_mean_fst)
 # essentially p = 0
 
-hist(random_snps_fst, breaks = 50, xlim = range(pretty(c(random_snps_fst, gwas_mean_fst))))
-abline(v = gwas_mean_fst, col = "blue")
+hist(random_snps_fst, breaks = 50, xlim = range(pretty(c(random_snps_fst, gwas_mean_fst)))); abline(v = gwas_mean_fst, col = "blue")
+
+wilcox.test(x = eaa_gwas_fst$Fst, y = fst_nogwas_vec)
+
+# Save this as a figure
+g_random_eaa_fst <- ggplot(data = NULL, aes(x = random_snps_fst)) +
+  geom_histogram(bins = 50, fill = "gray70") +
+  # geom_histogram(aes(x = eaa_gwas_fst$Fst), fill = "red") +
+  geom_vline(xintercept = gwas_mean_fst, color = "red") +
+  geom_text(aes(x = gwas_mean_fst, y = 1000, label = "EAA signif.\nSNPs"), color = "red",
+            nudge_x = -0.02, hjust = 1, size = 3) +
+  geom_text(aes(x = min(random_snps_fst), y = 1000, label = paste0("Random sets of\n", n_eaa_markers, " SNPS")),
+            color = "gray70", hjust = 0, nudge_x = 0.08, size = 3) +
+  scale_x_continuous(name = expression('Mean'~italic(F)[ST]), breaks = pretty) +
+  scale_y_continuous(name = "Frequency", breaks = pretty) +
+  theme_genetics()
+
+ggsave(filename = "FigureSXX_eaaFST_versus_randomFST.jpg", plot = g_random_eaa_fst, path = fig_dir,
+       height = 2, width = 4, dpi = 500)
 
 
+# Correlation between eaa p-values and Fst
+egwas_score_fst <- gwas_out_best_model %>%
+  filter(variable %in% unique(egwas_sigmar$variable)) %>%
+  left_join(., select(global_marker_fst, marker, Fst)) %>%
+  group_by(variable) %>%
+  summarize(fst_egwas_cor = cor(sqrt(score), Fst), .groups = "drop")
+
+egwas_score_fst %>%
+  arrange(desc(abs(fst_egwas_cor)))
 
 
 
@@ -316,7 +378,7 @@ all_sigmars <- bind_rows(
   mutate(spa_outliers, variable = "SPA", class = variable)
 ) %>% select(class, variable, marker, chrom, pos)
 
-# Iterate over the signficant markers
+# Iterate over the significant markers
 all_sigmar_nearby_annotation <- all_sigmars %>%
   group_by(class, variable, marker) %>%
   do({
@@ -350,14 +412,136 @@ all_sigmar_nearby_annotation <- all_sigmars %>%
     tibble(nearby_annotation = list(sigmar_nearby_ann), within_annotations = list(snp_i_within_annotation))
 
   }) %>% ungroup() %>%
-  mutate(space = ifelse(sapply(within_annotations, nrow) > 0, "genic", "non-genic"))
+  mutate(region = ifelse(sapply(within_annotations, nrow) > 0, "genic", "non-genic"))
 
+
+# Iterate over all markers
+all_markers_nearby_annotation <- all_sigmars %>%
+  distinct(marker) %>%
+  # Use this to subset remaining markers
+  anti_join(snp_info, .) %>%
+  group_by(marker) %>%
+  do({
+    snp_info_i <- .
+
+    # Is this SNP within any genes?
+    snp_i_within_annotation <- cranberry_gff %>%
+      filter(seqid == as.numeric(snp_info_i$chrom),
+             type != "chromosome") %>%
+      filter((start <= snp_info_i$pos & end >= snp_info_i$pos) | (start >= snp_info_i$pos & end <= snp_info_i$pos))
+
+    # Filter the GFF for annotations near the marker
+    sigmar_nearby_ann <- cranberry_gff %>%
+      filter(seqid == as.numeric(snp_info_i$chrom), type != "chromosome") %>%
+      filter(abs(snp_info_i$pos - start) <= bp | abs(snp_info_i$pos - end) <= bp) %>%
+      as_tibble() %>%
+      mutate_at(vars(start, end), list(distance = ~abs(. - snp_info_i$pos))) %>%
+      # Parse out the attributes
+      mutate(attributes = str_split(attributes, ";"),
+             attributes = map(attributes, ~{
+               splt <- str_split(.x, "=")
+               as_tibble(setNames(map(splt, 2), map_chr(splt, 1)))
+             }),
+             min_distance = pmin(start_distance, end_distance)) %>%
+      select(type, contains("start"), contains("end"), score:attributes, min_distance) %>%
+      arrange(min_distance)
+
+    tibble(min_distance_nearby_gene = min(subset(sigmar_nearby_ann, type == "gene", min_distance, drop = TRUE)),
+           region = ifelse(nrow(snp_i_within_annotation) == 0, "non-genic", "genic"))
+
+  }) %>% ungroup()
+
+
+# Replace Inf with NA
+all_markers_nearby_annotation <- all_markers_nearby_annotation %>%
+  mutate(min_distance_nearby_gene = ifelse(is.infinite(min_distance_nearby_gene), NA, min_distance_nearby_gene))
+
+
+# Proportion of genic SNPs in significant SNPs versus all SNPs
+all_sigmar_nearby_annotation %>%
+  distinct(marker, region) %>%
+  pull(region) %>%
+  table() %>%
+  prop.table()
+
+all_markers_nearby_annotation %>%
+  distinct(marker, region) %>%
+  pull(region) %>%
+  table() %>%
+  prop.table()
+
+# No difference in proportions
+
+
+
+
+# # Search for orthologs ----------------------------------------
+#
+# library(rvest)
+#
+# # For each marker and for each nearby annotation, search for potential
+# # genes
+#
+# nearby_annotation_gene_search <- all_sigmar_nearby_annotation %>%
+#   select(-within_annotations) %>%
+#   unnest(nearby_annotation) %>%
+#   filter(type == "mRNA") %>%
+#   mutate(alias = map_chr(attributes, "Alias"),
+#          alias = str_split(alias, ",") %>% map_chr(~str_subset(., "T1$"))) %>%
+#   distinct(marker, min_distance, alias) %>%
+#   mutate(out = list(NULL))
+#
+# # Start a html session
+# session <- session(url = "https://www.vaccinium.org/search/genes")
+#
+# # Pre-fill the form and add a file
+# search_form_prefill <- html_form(x = session)[[2]] %>%
+#   html_form_set(`analysis[]` = "Vaccinium macrocarpon cv. Ben Lear v1.0 genome sequence",
+#                 feature_name_op = "exactly",
+#                 `files[feature_name_file_inline]` = feature_filename)
+#
+# # Submit the form
+# search_form_mega_results <- html_form_submit(form = search_form_prefill)
+#
+#
+# # Iterate over the above data.frame
+# for (i in seq_len(nrow(nearby_annotation_gene_search))) {
+#   search_i <- nearby_annotation_gene_search$alias[i]
+#
+#   # Fill the form and submit
+#   search_form_results <- search_form_prefill %>%
+#     html_form_set(feature_name = search_i) %>%
+#     html_form_submit()
+#
+#   # Get the search elements
+#   search_elements <- search_form_results %>%
+#     read_html() %>%
+#     html_elements("table") %>%
+#     html_elements("a")
+#
+#   # html search elements
+#   search_link <- html_attr(search_elements, "href")[which(html_text(search_elements) == search_i)]
+#
+#   # Follow this new link
+#   page_i <- session_jump_to(x = session, url = paste0("https://www.vaccinium.org/", search_link))
+#
+#   # Read the HTML tables
+#   page_tables <- html_table(page_i)
+#
+#   # Subset the annotated terms and homology tables
+#   homology_table <- page_tables[[which(map_lgl(page_tables, ~any(names(.) %in% "E-value")))]]
+#   annot_terms_table <- bind_rows(page_tables[map_lgl(page_tables, ~any(names(.) %in% "Definition"))])
+#
+#   # Return these tables
+#   nearby_annotation_gene_search$out[[i]] <- list(homology = homology_table, annot_terms = annot_terms_table)
+#
+# }
 
 
 
 # Save the annotation data
-save("all_sigmar_nearby_annotation", "egwas_sigmar", "eaa_gwas_spa_scores", "spa_outliers", "fst_outliers",
-     file = file.path(result_dir, "egwas_sigmar_analysis.RData"))
+save("all_sigmar_nearby_annotation", "all_markers_nearby_annotation", "egwas_sigmar", "eaa_gwas_spa_scores",
+     "spa_outliers", "fst_outliers",  file = file.path(result_dir, "egwas_sigmar_analysis.RData"))
 
 
 

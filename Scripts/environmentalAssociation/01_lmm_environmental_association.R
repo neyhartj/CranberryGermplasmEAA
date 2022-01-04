@@ -31,6 +31,10 @@ eaa_environmental_data1 <- eaa_environmental_data %>%
   mutate(elevation = ifelse(is.na(elevation), 0, elevation))
 
 
+# Rename genotype matrices
+geno_mat_wild <- geno_mat_wild_filter3
+geno_hmp_wild <- geno_hmp_wild_filter3
+
 
 # Prepare bioclim and marker data -----------------------------------------
 
@@ -254,139 +258,88 @@ ggsave(filename = "egwas_qqplots.jpg", plot = qq_plots, path = fig_dir,
        height = 25, width = 10, dpi = 100)
 
 
-#
-# # For each variable, fit a multi-locus model to calculate SNP effects
-# mlmm_out_list <- list()
-#
-#
-#
-# for (vari in unique(gwas_out$variable)) {
-#   # Subset the scores for the best model
-#   best_model <- subset(p_lambda, variable == vari & best_model == "*", model, drop = TRUE)
-#
-#   scores1 <- gwas_out %>%
-#     filter(variable == vari, model == best_model)
-#
-#   # Get the number of PCs and covariates
-#   terms <- subset(egwas_models_df, model == best_model)
-#   nPCs <- terms$PCs
-#   covariates <- terms$covariates[[1]]
-#
-#   # Calculate the FDR p-value
-#   fdr_p <- sommer:::fdr(p = scores1$p_value, fdr.level = fdr_thresh)$fdr.10
-#   fdr_p <- ifelse(fdr_p > 1, 0, fdr_p)
-#
-#   # Subset markers with p-values below this score
-#   sig_mar <- subset(scores1, p_value <= fdr_p, marker, drop = TRUE)
-#
-#   if (length(sig_mar) == 0) next
-#
-#   # Create a new pheno object
-#   pheno1 <- pheno %>%
-#     left_join(select(pc_eigenvec, individual, PC1, PC2, PC3)) %>%
-#     left_join(., rownames_to_column(as.data.frame(geno_mat_wild1[,sig_mar, drop = FALSE]), "individual"))
-#
-#   # Create the model formula
-#   fixed <- as.formula(paste(vari, "~ 1")) %>%
-#     modelr::add_predictors(f = ., as.formula(paste0("~", paste0(c(paste0(rep("PC", nPCs), seq_len(nPCs)), covariates, sig_mar), collapse = "+"))))
-#
-#   # Build matrices to fit the mixed model
-#   mf <- model.frame(formula = modelr::add_predictors(fixed, ~ individual), data = pheno1)
-#
-#   y <- model.response(mf)
-#   X <- model.matrix(fixed, mf)
-#   Z <- model.matrix(~ -1 + individual, mf)
-#   K1 <- K_wild_use[mf$individual, mf$individual]
-#
-#   # Fit the mixed model
-#   mlmm_out <- mixed.solve(y = y, Z = Z, K = K1, X = X, method = "REML", SE = TRUE)
-#
-#   u <- mlmm_out$u
-#   which_x <- which(! colnames(X) %in% colnames(geno_mat_wild1))
-#   b <- X[,which_x,drop = FALSE] %*% mlmm_out$beta[which_x]
-#
-#   # Calculate marginal y (y - polygenic effect)
-#   y_marginal <- y - as.vector(b) - u
-#
-#   # Test SNP effects
-#   fixef <- cbind(beta = mlmm_out$beta, se = mlmm_out$beta.SE)
-#   # p-values
-#   p_vals <- pchisq(q = fixef[,"beta"]^2 / fixef[,"se"]^2, df = 1, lower.tail = FALSE)
-#   fixef <- cbind(fixef, p_value = p_vals)
-#
-#   ## While loop
-#   non_sig <- any(fixef[sig_mar, "p_value"] > mlmm_p_thresh)
-#   while(non_sig) {
-#     # Exclude the least significant marker; rerun the model
-#     sig_mar <- setdiff(sig_mar, names(which.max(fixef[row.names(fixef) %in% scores1$marker,"p_value"])[1]))
-#     X <- X[,setdiff(colnames(X), intersect(setdiff(colnames(X), sig_mar), colnames(geno_mat_wild1))), drop = FALSE]
-#
-#     # Fit the mixed model
-#     mlmm_out <- mixed.solve(y = y, Z = Z, K = K1, X = X, method = "REML", SE = TRUE)
-#
-#     # Test SNP effects
-#     fixef <- cbind(beta = mlmm_out$beta, se = mlmm_out$beta.SE)
-#     # p-values
-#     p_vals <- pchisq(q = fixef[,"beta"]^2 / fixef[,"se"]^2, df = 1, lower.tail = FALSE)
-#     fixef <- cbind(fixef, p_value = p_vals)
-#
-#     non_sig <- any(fixef[sig_mar, "p_value"] > mlmm_p_thresh)
-#
-#
-#   }
-#
-#
-#   # Calculate R2 as correlation of predicted with observed
-#   beta_mat <- matrix(data = fixef[,"beta"], nrow = nrow(X), ncol = ncol(X), byrow = TRUE,
-#                      dimnames = list(NULL, row.names(fixef)))
-#   # Individual markers
-#   r2_cor <- apply(X = X * beta_mat, MARGIN = 2, FUN = function(y_hat) cor(y_hat, y)^2)
-#
-#   # All markers
-#   y_hat_all_mar <- X[,sig_mar, drop = FALSE] %*% fixef[,"beta"][sig_mar]
-#   r2_all_mar <- cor(y_hat_all_mar, y)^2
-#
-#   # Also calculate R2 for the random polygenic background
-#   r2_polygenic <- cor(mlmm_out$u, y)^2
-#
-#
-#   # Effects
-#   effect_plot_df <- rownames_to_column(as.data.frame(cbind(fixef, r2_cor)), "term")
-#   r2_additional <- tibble(term = c("significant_markers", "all_markers"), r2_cor = c(r2_all_mar, r2_polygenic))
-#
-#   # Add everything to the list
-#   mlmm_out_list[[vari]] <- list(effect_plot_df, r2_additional,
-#                                 y_marginal = rownames_to_column(as.data.frame(y_marginal), "individual"))
-#
-#
-# }
-#
-#
-# # Count associations
-# mlmm_out_df <- mlmm_out_list %>%
-#   map(1) %>% # Get the first item
-#   map(~filter(.x, str_detect(term, "^S"))) %>%
-#   imap_dfr(~mutate(.x, variable = .y))
-#
-# # Bioclim variables
-# mlmm_out_df %>%
-#   group_by(variable) %>%
-#   count() %>%
-#   as.data.frame()
-#
-# # Markers
-# mlmm_out_df %>%
-#   group_by(term) %>%
-#   count() %>%
-#   as.data.frame()
-#
-# ## Marker related to temperature
-# mlmm_out_df %>%
-#   left_join(., eaa_environmental_vars) %>%
-#   group_by(class, term) %>%
-#   count() %>%
-#   as.data.frame()
+# Select significant SNPs
+eaa_gwas_sigmar <- gwas_out %>%
+  filter(model == "model2") %>%
+  split(.$variable) %>%
+  map_df(~filter(.x, p_value <= sommer:::fdr(p_value, fdr.level = fdr_level)$fdr.10))
 
+
+
+# For each variable, use the population-structure corrected climate information to
+# fit a model that estimates SNP R2
+mlm_out_list <- list()
+
+for (vari in unique(eaa_gwas_sigmar$variable)) {
+
+  # Get the number of PCs and covariates
+  terms <- subset(egwas_models_df, model == best_model)
+  nPCs <- terms$PCs
+  covariates <- terms$covariates[[1]]
+
+  # Create a new pheno object
+  pheno1 <- pheno %>%
+    left_join(select(K_eigens, individual, PC1, PC2, PC3), by = c("individual", "PC1", "PC2", "PC3"))
+
+
+  # Create the model formula
+  fixed <- reformulate(c(paste0(rep("PC", nPCs), seq_len(nPCs)), covariates), response = vari)
+  # Build matrices to fit the mixed model
+  mf <- model.frame(formula = modelr::add_predictors(fixed, ~ individual), data = pheno1)
+
+  y <- model.response(mf)
+  X <- model.matrix(fixed, mf)
+  Z <- model.matrix(~ -1 + individual, mf)
+  K1 <- K_wild_use[mf$individual, mf$individual]
+
+  # Fit the mixed model
+  mm_out <- mixed.solve(y = y, Z = Z, K = K1, X = X, method = "REML", SE = TRUE)
+
+  # Calculate adjusted variable values
+  adj_y <- y - ((X %*% mm_out$beta) + (Z %*% mm_out$u))
+
+  # Regress these values on the significant SNPs
+
+  # Subset markers with p-values below this score
+  sig_mar <- subset(eaa_gwas_sigmar, variable == vari, marker, drop = TRUE)
+
+  # Create a model frame with the SNP genotypes
+  mf2 <- as.data.frame(cbind(y = y, y_adj = as.numeric(adj_y), geno_mat_wild1[,sig_mar, drop = FALSE]))
+  # Run the regression
+  mr_out <- lm(reformulate(sig_mar, response = "y_adj", intercept = FALSE), mf2)
+  # Stepwise removal of markers
+  mr_out_step <- step(mr_out, trace = 0)
+  # Do the same thing, but regress the original y values
+  mr_out_yorig <- lm(reformulate(sig_mar, response = "y", intercept = FALSE), mf2)
+  mr_out_step_yorig <- step(mr_out_yorig, trace = 0)
+
+  # Calculate r squared for retained markers
+  mr_out_step_adjRsquared <- summary(mr_out_step)$adj.r.square
+  mr_out_step_yorig_adjRsquared <- summary(mr_out_step_yorig)$adj.r.square
+
+  # Calculate r squared for PCs and polygenic background
+  pop_str_r2 <- as.numeric(var((X %*% mm_out$beta))) / var(y)
+  polygen_r2 <- (mm_out$Vu / var(y))
+  resid_r2 <- 1 - (pop_str_r2 + polygen_r2)
+
+  # Calculate the variance explained by each component of the model
+  mlm_variance_explained <- tibble(
+    term = c("population_structure", "polygenic_background", "significant_markers"),
+    nLevels = as.numeric(c(NA, NA, length(coef(mr_out_step)))),
+    total_variance_explained = c(pop_str_r2, polygen_r2, mr_out_step_adjRsquared * resid_r2),
+    resid_variance_explained = as.numeric(c(NA, NA, mr_out_step_adjRsquared)),
+    nLevels_noLMM = as.numeric(c(NA, NA, length(coef(mr_out_step_yorig)))),
+    total_variance_explained_noLMM = as.numeric(c(NA, NA, mr_out_step_yorig_adjRsquared))
+  )
+
+  # Add everything to the list
+  mlm_out_list[[vari]] <- mlm_variance_explained
+
+}
+
+# Combine
+mlm_out_df <- imap_dfr(mlm_out_list, ~mutate(.x, variable = .y)) %>%
+  select(variable, names(.))
 
 
 # ## Save the results
@@ -397,7 +350,14 @@ egwas_models_df <- egwas_models_df %>%
   select(-output)
 
 
-save("gwas_out", "p_lambda", "egwas_models_df", file = file.path(result_dir, "eaa_gwas_results.RData"))
+save("gwas_out", "p_lambda", "eaa_gwas_sigmar", "egwas_models_df", "mlm_out_df",
+     file = file.path(result_dir, "eaa_gwas_results.RData"))
+
+
+
+
+
+
 
 
 
