@@ -191,7 +191,8 @@ ld_wild_decay %>%
   summarize(mean_half_life = mean(half_bp), min_half_life = min(half_bp), max_half_life = max(half_bp))
 
 # mean_half_life min_half_life max_half_life
-#   1         23512.         9247.        43609.
+# <dbl>         <dbl>         <dbl>
+#   1         22500.        10190.        37183.
 
 
 # When does LD fall below 0.3, 0.2, 0.1?
@@ -206,9 +207,10 @@ ld_wild_decay %>%
   summarize(mean_d = mean(d), min_d = min(d), max_d = max(d))
 
 # ld_threshold mean_d min_d max_d
-# 1          0.1  39625 17000 63000
-# 2          0.2  16500  7500 23500
-# 3          0.3   3875     0  8000
+# <dbl>  <dbl> <dbl> <dbl>
+# 1          0.1 42083. 19000 65000
+# 2          0.2 17792.  8000 25000
+# 3          0.3  4667.     0  7500
 
 
 
@@ -235,89 +237,61 @@ pairwise_dist_df1 %>%
   left_join(., aggregate(individual ~ location_abbr, data = germ_meta1, FUN = n_distinct), by = c("location1" = "location_abbr")) %>%
   arrange(desc(mean_distance))
 
+# Summarize between location pairwise distances
+between_pop_dist <- pairwise_dist_df1 %>%
+  filter(location1 != location2) %>%
+  group_by(location1, location2) %>%
+  summarize(mean_dist = mean(distance), min_dist = min(distance), max_dist = max(distance),
+            range_dist = max_dist - min_dist, .groups = "drop")
+
+between_pop_dist$mean_dist %>% mean
+
+
 # Rename
 pairwise_dist_data <- pairwise_dist_df1
 
 
 
+# heatmap
+between_pop_dist_mat <- between_pop_dist %>%
+  select(location1, location2, mean_dist) %>%
+  spread(location2, mean_dist) %>%
+  as.data.frame() %>%
+  column_to_rownames("location1") %>%
+  as.matrix()
 
-
-# Calculate the number of segregating sites per population ------------------
-
-# Split individuals by population
-indiv_per_pop <- germ_meta1 %>%
-  filter(individual %in% rownames(geno_mat_wild_filter3)) %>%
-  split(.$location_abbr) %>%
-  map("individual")
-
-pop_seg_sites <- indiv_per_pop %>%
-  imap_dfr(~{
-    mat1 <- geno_mat_wild_filter3[.x,, drop = FALSE]
-    ref_allele_freq <- colMeans(mat1 + 1) / 2
-    tibble(location_abbr = .y, nSegSites = sum(ref_allele_freq < 1 & ref_allele_freq > 0)) %>%
-      mutate(propSegsites = nSegSites / ncol(mat1), popSize = nrow(mat1))
-  })
-
-# location_abbr nSegSites propSegsites popSize
-# 1 VNLME               294       0.0601       1
-# 2 MTPPA              1509       0.309        1
-# 3 LBCME              1517       0.310        2
-# 4 FIENY              1678       0.343        1
-# 5 PTCNY              2334       0.477        2
-# 6 ONCWI              2816       0.576        4
-# 7 AMGNY              3004       0.614        3
-# 8 SNNMA              3313       0.677        4
-# 9 STCNB              3382       0.691        3
-# 10 FLNNY              3455       0.706        6
-# 11 FIWNY              3641       0.744        4
-# 12 LWSDE              3763       0.769        8
-# 13 CRLMI              4117       0.842        9
-# 14 IBSPNJ             4210       0.861       14
-# 15 SSQPA              4280       0.875        6
-# 16 CRMWV              4444       0.909        8
-# 17 PLLMA              4739       0.969       35
-
-
-
-# Calculate the number of private alleles per population ------------------
-
-pop_private_alleles <- indiv_per_pop %>%
-  map_dbl(~{
-    # List all remaining individuals from other pops
-    .x1 <- setdiff(unlist(indiv_per_pop), .x)
-    # Find the SNPs that are not segregating in these remaining individuals
-    nGenoPerSnp <- apply(geno_mat_wild_filter3[.x1, , drop = FALSE], 2, n_distinct)
-    sum(nGenoPerSnp == 1)
-  })
-
+# Replace NA in upper triangle with non-NA from lower
+between_pop_dist_mat1 <- as.matrix(as.dist(t(between_pop_dist_mat)))
+diag(between_pop_dist_mat1) <- NA
 
 
 
 # # Calculate nuceotide diversity -------------------------------------------
 #
 # # THIS IS DONE USING VCFTOOLS IN CERES #
+# #
+# # # Here is the basic code to calculate nucleotide diversity on a whole per-chromosome scale:
+# # vcftools --gzvcf wild_cranberry_cleaned_genotypes_filter3.vcf.gz --window-pi 100000000 --out wild_cranberry_cleaned_genotypes_nucleotide_diversity_genomewide
+# #
 #
-# # Read in the results
-# nucle_div <- read_tsv(file = file.path(result_dir, "wild_cranberry_cleaned_genotypes_nucleotide_diversity.sites.pi"))
+# nucleo_div <- list.files(path = result_dir, pattern = "windowed.pi", full.names = TRUE) %>%
+#   map_df(~read_tsv(file = .x) %>% mutate(window_size = str_extract(.x, "[0-9]{1,}kb"))) %>%
+#   rename_all(tolower)
 #
-# # Combine with SNP info
-# snp_nucleo_div <- nucle_div %>%
-#   rename_all(tolower) %>%
-#   left_join(snp_info, .)
+# # Summarize
+# nucleo_div %>%
+#   group_by(window_size) %>%
+#   summarize(pi_mean = mean(pi), mean_n_variants = mean(n_variants))
 #
-# # Window sizes
-# window_size <- 1000000
+# # For 5 kb windows: 8.79786e-05
 #
-# # Sliding window average
-# snp_nucleo_div_slide <- snp_nucleo_div %>%
-#   split(.$chrom) %>%
-#   map_df(~{
-#     # Create windows
-#     pos_breaks <- seq(0, max(pretty(.x$pos)), by = window_size)
-#     # Summarize within these breaks; output
-#     tibble(chrom = unique(.x$chrom), pos = head(pos_breaks, -1),
-#            pi_mean = map_dbl(split(.x$pi, cut(.x$pos, breaks = pos_breaks)), mean))
-#   })
+# # Plot
+# nucleo_div %>%
+#   filter(chrom == "01") %>%
+#   ggplot(aes(x = bin_start, y = pi)) +
+#   geom_line() +
+#   facet_grid(window_size ~ .)
+#
 #
 # # Plot
 # snp_nucleo_div_slide %>%

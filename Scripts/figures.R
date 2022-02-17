@@ -15,6 +15,7 @@ library(patchwork)
 library(cowplot)
 library(scatterpie)
 library(ggrepel)
+library(khroma)
 
 # Load the startup script
 source("startup.R")
@@ -492,7 +493,7 @@ sigmar_summary <- all_sigmar %>%
 #   # Save
 #   filename <- paste0("egwas_summary_", sigmar_summary$variable[i], "-marker-", sigmar_summary$marker[i], "-",
 #                      sigmar_summary$class[i], ".jpg")
-#   ggsave(filename = filename, plot = combined_plot1, path = fig_dir, width = 8, height = 2.5, dpi = 300)
+#   ggsave(filename = filename, plot = combined_plot1, path = fig_dir, width = 8, height = 2.5, dpi = 150)
 #
 #   pb$tick()
 #
@@ -515,7 +516,7 @@ xlim <- range(pretty(wild_germ_meta1$longitude))
 ylim <- range(pretty(wild_germ_meta1$latitude))
 
 # Breaks for population size
-pop_size_breaks <- pretty(range(wild_germ_meta_origin_summ$nSamples))
+pop_size_breaks <- pretty(range(wild_germ_meta_origin_summ$nSamples), n = 3)
 
 # Map
 g_map <- ggplot(data = north_america_mapdata, aes(x = long, y = lat)) +
@@ -529,23 +530,13 @@ g_map <- ggplot(data = north_america_mapdata, aes(x = long, y = lat)) +
   scale_size_continuous(name = "Population size", breaks = pop_size_breaks, labels = pop_size_breaks,
                         limits = range(pop_size_breaks), range = c(1, 8)) +
   # scale_size_manual() +
-  labs(subtitle = "Wild cranberry collection sites") +
+  # labs(subtitle = "Wild cranberry collection sites") +
   theme_void(base_size = 14) +
   theme(legend.position = c(0.90, 0.05), legend.justification = c(1,0), legend.box = "vertical", legend.box.just = "left",
         panel.border = element_rect(fill = NA))
 
-
 # Save the figure
-ggsave(filename = "cranberry_wild_germplasm_origins.jpg", plot = g_map, path = fig_dir,
-       width = 8, height = 4, dpi = 1000)
-
-# Remove the subtitle
-g_map1 <- g_map
-g_map1$labels$subtitle <- NULL
-
-
-# Save the figure
-ggsave2(filename = "figure1_cranberry_wild_germplasm_origins1", plot = g_map1, path = fig_dir,
+ggsave2(filename = "figure1_cranberry_wild_germplasm_origins1", plot = g_map, path = fig_dir,
         device = fig_device, width = 8, height = 4, dpi = fig_dpi)
 
 
@@ -678,64 +669,30 @@ ld_wild_df1 <- ld_wild_df %>%
 
 ## Plot LD decay
 
-# Plot LD decay without filtering distance
+# Plot decay curves of all chromosomes
 
-g_ld_decay_all_chrom1 <- ld_wild_df1 %>%
-  ggplot(aes(x = bp_dist / 1000, y = r2)) +
-  geom_point(size = 0.3, color = "gray") +
-  geom_line(data = ld_wild_decay1, aes(x = d / 1000, y = yhat), lwd = 1) +
-  scale_x_continuous(name = "Distance (kbp)", breaks = pretty) +
+# Unfiltered distance
+g_ld_decay_curves_all_chrom <- ld_wild_decay1 %>%
+  ggplot(aes(x = d / 1000, y = yhat, color = LG)) +
+  geom_line(lwd = 0.75) +
+  scale_x_continuous(name = "Distance (kb)", breaks = pretty) +
   scale_y_continuous(name = expression("Linkage disequilibrium ("*r^2*")")) +
-  facet_wrap(~ LG, labeller = labeller(LG = function(x) paste0("Chrom. ", x))) +
-  theme_genetics()
+  scale_color_discreterainbow(name = "Chrom.", guide = guide_legend(ncol = 2, keyheight = unit(0.5, "line"))) +
+  # facet_wrap(~ LG, labeller = labeller(LG = function(x) paste0("Chrom. ", x))) +
+  theme_genetics(base_size = base_font_size) +
+  theme(legend.position = c(0.35, 0.8))
 
+# Filter distance
+g_ld_decay_curves_all_chrom_filtered <- g_ld_decay_curves_all_chrom %>%
+  modify_at("data", ~filter(., d <= 2e5))
 
-# Plot LD decay with filtering distance
-
-# Modify the fitted LD values
-ld_wild_decay2 <- unnest(ld_wild_decay, predictions) %>%
-  filter(d <= 2e5)
-ld_wild_df2 <- ld_wild_df %>%
-  # rename(d = bp_dist) %>%
-  filter(bp_dist <= 2e5)
-
-
-g_ld_decay_all_chrom2 <- ld_wild_df2 %>%
-  ggplot(aes(x = bp_dist / 1000, y = r2)) +
-  geom_point(size = 0.3, color = "gray") +
-  geom_line(data = ld_wild_decay2, aes(x = d / 1000, y = yhat), lwd = 1) +
-  scale_x_continuous(name = "Distance (kbp)", breaks = pretty) +
-  scale_y_continuous(name = expression("Linkage disequilibrium ("*r^2*")")) +
-  facet_wrap(~ LG, labeller = labeller(LG = function(x) paste0("Chrom. ", x))) +
-  theme_genetics()
-
-
-## Plot chromosome 1 low distance versus full
-
-g_ld_decay_chrom1_long <- ld_wild_df1 %>%
-  filter(LG == "01") %>%
-  ggplot(aes(x = bp_dist / 1000, y = r2)) +
-  geom_point(size = 0.3, color = "gray") +
-  geom_line(data = subset(ld_wild_decay1, LG == "01"), aes(x = d / 1000, y = yhat), lwd = 1) +
-  scale_x_continuous(name = "Chromosome 1 marker distance (kbp)", breaks = pretty, expand = expansion(mult = c(0.01, 0.05))) +
-  scale_y_continuous(name = expression("Linkage disequilibrium ("*r^2*")"), expand = expansion(mult = c(0.01, 0.05))) +
-  theme_genetics()
-
-g_ld_decay_chrom1_short <- ld_wild_df2 %>%
-  filter(LG == "01") %>%
-  ggplot(aes(x = bp_dist / 1000, y = r2)) +
-  geom_point(size = 0.3, color = "gray") +
-  geom_line(data = subset(ld_wild_decay2, LG == "01"), aes(x = d / 1000, y = yhat), lwd = 1) +
-  scale_x_continuous(name = "Chromosome 1 marker distance (kbp)", breaks = pretty, expand = expansion(mult = c(0.01, 0.01))) +
-  scale_y_continuous(name = expression("Linkage disequilibrium ("*r^2*")"), expand = expansion(mult = c(0.01, 0.05))) +
-  theme_genetics()
-
-
+# Combine plots
 
 # Determine the left and right plots
-left_plot <- g_ld_decay_chrom1_short
-right_plot <- g_ld_decay_chrom1_long +
-  theme(axis.title = element_blank(), plot.background = element_rect(fill = alpha("white", 1), color = "black"))
+left_plot <- g_ld_decay_curves_all_chrom_filtered
+right_plot <- g_ld_decay_curves_all_chrom +
+  theme(legend.position = "none", axis.title = element_blank(),
+        plot.background = element_rect(fill = alpha("white", 1), color = "black"))
 
 ## Combine plots
 layout <- c(
@@ -890,9 +847,8 @@ g_chromlengths_rotate <- chromlengths1 %>%
                   min.segment.length = 0, ) +
   facet_grid(chrom ~ ., switch = "y", labeller = labeller(chrom = as_mapper(~paste("Chrom.", as.numeric(.))))) +
   scale_alpha_manual(guide = FALSE, values = seq(0.5, 1, length.out = 6)) +
-  scale_color_manual(values = c(neyhart_palette("umn2")[3], neyhart_palette("fall")), name = NULL,
-                     guide = guide_legend(nrow = 1, keywidth = unit(0, "line"), override.aes = list(lwd = 2)),
-                     labels = function(x) parse(text = x)) +
+  scale_color_muted(name = NULL, guide = guide_legend(nrow = 1, keywidth = unit(0, "line"), override.aes = list(lwd = 2)),
+                    labels = function(x) parse(text = x)) +
   scale_y_discrete(name = NULL, labels = NULL) +
   scale_x_continuous(name = "Position (Mb)", breaks = pretty, expand = expansion(0.05, 0.15)) +
   theme_genetics(base_size = base_font_size) +
@@ -901,7 +857,7 @@ g_chromlengths_rotate <- chromlengths1 %>%
         axis.ticks.y = element_blank(), legend.box.margin = margin(), legend.margin = margin())
 
 ggsave2(filename = "figure3_genomic_statistics_chroms_rotated", plot = g_chromlengths_rotate,
-        width = 4, height = 6, dpi = 500)
+        width = 4, height = 5.5, dpi = 500)
 
 
 
@@ -967,7 +923,7 @@ g_man_combined <- manhattan_data %>%
              labeller = labeller(variable = function(x) f_rename_variables(x, width = 18))) +
   scale_x_continuous(breaks = median, name = NULL) +
   scale_y_continuous(name = expression(-log[10](p-value)), breaks = pretty, expand = expansion(mult = c(0, 0.35))) +
-  scale_linetype_discrete(name = NULL) +
+  scale_linetype_discrete(name = NULL, guide = guide_legend(ncol = 1, keyheight = unit(0.5, "lines"))) +
   theme_genetics(base_size = base_font_size) +
   theme(panel.spacing.x = unit(0, "lines"), strip.placement = "outside",
         axis.text.x = element_blank(), axis.ticks.length.x = unit(0.25, "lines"), axis.line.x = element_blank(),
@@ -1071,7 +1027,7 @@ g_loci_overlaps <- loci_overlaps_polygons %>%
   # geom_text_repel(data = loci_overlaps_labels, mapping = aes(label = Name), size = 2, direction = "y") +
   scale_fill_discrete(guide = FALSE) +
   # Adjust 'expand' argument to align the vertical lines from the manhattan plot and the gene model plot
-  scale_x_continuous(name = "Chromosome 4 position (kbp)", breaks = pretty) +
+  scale_x_continuous(name = "Chromosome 4 position (kb)", breaks = pretty) +
   scale_y_continuous(expand = expansion(mult = 0.1)) +
   theme_genetics(base_size = base_font_size) +
   theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(),
@@ -1163,15 +1119,6 @@ bioclim_allele_list$S04_24963382$data %>%
   spread(genotype_class, biovar_mean) %>%
   mutate(diff = minor - major)
 
-bioclim_allele_list$S07_30582060$data %>%
-  group_by(variable, genotype) %>%
-  summarize(biovar_mean = mean(biovar), nInd = n(), .groups = "drop") %>%
-  filter(map_lgl(str_split(genotype, ""), ~n_distinct(.) == 1)) %>%
-  mutate(genotype_class = ifelse(nInd == min(nInd), "minor", "major")) %>%
-  select(-genotype, -nInd) %>%
-  spread(genotype_class, biovar_mean) %>%
-  mutate(diff = minor - major)
-
 
 # Frequency of alleles in all populations
 subset(all_marker_freq, marker %in% loci_highlight)
@@ -1229,24 +1176,24 @@ all_sigmar_nearby_annotation %>%
 ## First show the locus on Chromosome 4 associated with multiple worldclim temperature
 ## variables
 
-# loci_highlight <- c("S02_38027635")
-loci_highlight <- "S03_4582157"
+loci_highlight <- c("S02_38027635", "S03_4582157")
+locus_highlight <- "S03_4582157"
 
 
 
 egwas_sigmar %>%
-  filter(marker %in% loci_highlight) %>%
+  filter(marker %in% locus_highlight) %>%
   # add environmental variable full names
   left_join(., select(eaa_environmental_vars, -class))
 
 locus1_summary <- egwas_sigmar %>%
-  filter(marker %in% loci_highlight, str_detect(variable, "subsoil", negate = TRUE)) %>%
+  filter(marker %in% locus_highlight, str_detect(variable, "subsoil", negate = TRUE)) %>%
   # add environmental variable full names
   left_join(., select(eaa_environmental_vars, -class))
 
 # Create a highlight window for this snp
 locus1_highlight_rect <- snp_info %>%
-  filter(marker %in% loci_highlight) %>%
+  filter(marker %in% locus_highlight) %>%
   mutate(left = pos - 1000, right = pos + 1000)
 
 
@@ -1285,7 +1232,7 @@ g_man_combined <- manhattan_data %>%
              labeller = labeller(variable = function(x) f_rename_variables(x, width = 18))) +
   scale_x_continuous(breaks = median, name = NULL) +
   scale_y_continuous(name = expression(-log[10](p-value)), breaks = pretty, expand = expansion(mult = c(0, 0.35))) +
-  scale_linetype_discrete(name = NULL) +
+  scale_linetype_discrete(name = NULL, guide = guide_legend(ncol = 1, keyheight = unit(0.5, "lines"))) +
   theme_genetics(base_size = base_font_size) +
   theme(panel.spacing.x = unit(0, "lines"), strip.placement = "outside",
         axis.text.x = element_blank(), axis.ticks.length.x = unit(0.25, "lines"), axis.line.x = element_blank(),
@@ -1296,7 +1243,7 @@ g_man_combined <- manhattan_data %>%
 
 ## Plot Part B - Genomic range of the gene
 
-loci_grange <- subset(snp_info, marker %in% loci_highlight) %>%
+loci_grange <- subset(snp_info, marker %in% locus_highlight) %>%
   mutate(start = pos - 17000, end = pos + 17000, chrom = parse_number(chrom)) %>%
   as(., "GRanges")
 
@@ -1398,7 +1345,7 @@ g_loci_overlaps <- loci_overlaps_polygons %>%
                   box.padding = unit(0.8, "line"), force_pull = 0, force = 1, min.segment.length = unit(0.5, "line")) +
   scale_fill_discrete(guide = FALSE) +
   # Adjust 'expand' argument to align the vertical lines from the manhattan plot and the gene model plot
-  scale_x_continuous(name = "Chromosome 3 position (kbp)", breaks = pretty) +
+  scale_x_continuous(name = "Chromosome 3 position (kb)", breaks = pretty) +
   scale_y_continuous(expand = expansion(mult = 0.1)) +
   theme_genetics(base_size = base_font_size) +
   theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(),
@@ -1410,7 +1357,7 @@ g_loci_overlaps <- loci_overlaps_polygons %>%
 
 # Subset this from the list of plots above
 allele_geo_list <- sigmar_summary %>%
-  filter(marker %in% loci_highlight) %>%
+  filter(marker %in% locus_highlight) %>%
   split(.$marker) %>%
   map("plot2") %>%
   map(1) %>%
@@ -1505,27 +1452,34 @@ subset(all_marker_freq, marker %in% loci_highlight)
 
 
 
-
-
-
-# What about the other variables
-sigmar_summary %>%
-  filter(marker %in% loci_highlight) %>%
-  mutate(data = map(plot1, "data")) %>%
-  select(variable, marker, full_name, data) %>%
-  unnest(data) %>%
-  group_by(variable, genotype) %>%
-  summarize(biovar_mean = mean(biovar), nInd = n(), .groups = "drop") %>%
-  filter(map_lgl(str_split(genotype, ""), ~n_distinct(.) == 1)) %>%
-  mutate(genotype_class = ifelse(nInd == min(nInd), "minor", "major")) %>%
-  select(-genotype, -nInd) %>%
-  spread(genotype_class, biovar_mean) %>%
-  mutate(diff = minor - major)
-
-
 # Allele frequencies
 subset(all_marker_freq, marker %in% loci_highlight)
 
+
+
+# Table 1: pairwise genetic distance -----------------------
+
+# Summarize within-location pairwise distances
+table1_prep <- pairwise_dist_data %>%
+  filter(location1 == location2) %>%
+  group_by(location1) %>%
+  summarize(mean_distance = mean(distance), min_dist = min(distance), max_distance = max(distance)) %>%
+  left_join(., aggregate(individual ~ location_abbr, data = germplasm_bioclim_data, FUN = n_distinct), by = c("location1" = "location_abbr")) %>%
+  arrange(desc(mean_distance)) %>%
+  select(location = location1, sample_size = individual, mean_pairwise_distance = mean_distance,
+         min_pairwise_distance = min_dist, max_pairwise_distance = max_distance)
+
+
+# Format for the manuscript
+# Add location full names and state information
+table1_prep %>%
+  mutate_at(vars(contains("distance")), format_numbers) %>%
+  mutate(annotation = paste0(mean_pairwise_distance, " (", min_pairwise_distance, ", ", max_pairwise_distance, ")")) %>%
+  left_join(., mutate(distinct(eaa_environmental_data, location_abbr, location, state), location = str_to_title(location)), by = c("location" = "location_abbr")) %>%
+  select(location = location.y, state, abbreviation = location, N = sample_size, annotation) %>%
+  rename_all(~str_replace_all(., "_", " ") %>% str_to_title()) %>%
+  # Save as a CSV
+  write_csv(x = ., file = file.path(fig_dir, "table1_pairwise_genetic_distance.csv"))
 
 
 # Supplemental Figure SXX: other PCA plots -------------------------------
@@ -1539,26 +1493,7 @@ ggsave(filename = "figureSXX_population_structure_pairwise.jpg", plot = g_combin
 
 
 
-# Supplemental Figure SXX: all chromosome LD -----------------------------
-
-# Combine the full-length and 200 kbp cutoffs for all-chromosome LD
-
-g_ld_decay_all_chromosomes <- g_ld_decay_all_chrom1 + g_ld_decay_all_chrom2 +
-  plot_annotation(tag_levels = "A")
-
-
-# Save
-ggsave(filename = "figureSXX_ld_decay_all_chromosomes.jpg", plot = g_ld_decay_all_chromosomes,
-       path = fig_dir, width = 10, height = 4, dpi = 500)
-
-
-
-
-
-
-
-
-# Supplemental Figure SXX: boxplots of environmental variables -----------
+# Supplemental Figure S01: boxplots of environmental variables -----------
 
 bioclim_data_plot <- germplasm_bioclim_data %>%
   as_tibble() %>%
@@ -1588,11 +1523,11 @@ bioclim_plot_list <- bioclim_data_plot %>%
 g_bioclim_boxplots <- wrap_plots(bioclim_plot_list, ncol = 5)
 
 # Save
-ggsave(filename = "figureSXX_bioclim_boxplots.jpg", plot = g_bioclim_boxplots,
+ggsave(filename = "figureS01_bioclim_boxplots.jpg", plot = g_bioclim_boxplots,
        path = fig_dir, height = 25, width = 10, dpi = 500)
 
 
-# Supplemental Figure SXX: correlation of environmental vars -------------
+# Supplemental Figure S02: correlation of environmental vars -------------
 
 bioclim_dat_cor <- germplasm_bioclim_data %>%
   select(location_abbr, all_of(env_variables_of_interest)) %>%
@@ -1625,7 +1560,7 @@ g_cor1 <- bind_rows(mutate(g_cor$data, upper = FALSE), mutate(rename(g_cor$data,
   theme(axis.title = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1))
 
 # Save
-ggsave(filename = "figureSXX_biovar_correlation.jpg", plot = g_cor1, path = fig_dir,
+ggsave(filename = "figureS02_biovar_correlation.jpg", plot = g_cor1, path = fig_dir,
        height = 5, width = 7.5, dpi = 500)
 
 
@@ -1658,7 +1593,7 @@ g_envData_pca <- eaa_envData_pcs_df %>%
 
 
 
-# Supplemental Figure SXX: dissection of Fst outliers ---------------------
+# Supplemental Figure S03: dissection of Fst outliers ---------------------
 
 
 loci_highlight <- fst_outliers %>%
@@ -1731,12 +1666,12 @@ g_combined_list <- full_join(tibble(marker = names(allele_geo_list), p1 = allele
 g_combined <- wrap_plots(g_combined_list, ncol = 2)
 
 # Save
-ggsave(filename = "figureSXX_Fst_outliers.jpg", plot = g_combined, path = fig_dir,
+ggsave(filename = "figureS03_Fst_outliers.jpg", plot = g_combined, path = fig_dir,
        height = 10, width = 10, dpi = 500)
 
 
 
-# Supplemental Figure SXX: dissection of SPA outliers ---------------------
+# Supplemental Figure S04: dissection of SPA outliers ---------------------
 
 
 loci_highlight <- spa_outliers %>%
@@ -1809,7 +1744,7 @@ g_combined_list <- full_join(tibble(marker = names(allele_geo_list), p1 = allele
 g_combined <- wrap_plots(g_combined_list, ncol = 2)
 
 # Save
-ggsave(filename = "figureSXX_SPA_outliers.jpg", plot = g_combined, path = fig_dir,
+ggsave(filename = "figureS04_SPA_outliers.jpg", plot = g_combined, path = fig_dir,
        height = 10, width = 10, dpi = 500)
 
 
@@ -1827,24 +1762,18 @@ eaa_environmental_vars %>%
 
 
 
-# Supplemental Table S02: pairwise genetic distance -----------------------
 
-# Summarize within-location pairwise distances
-pairwise_dist_data %>%
-  filter(location1 == location2) %>%
-  group_by(location1) %>%
-  summarize(mean_distance = mean(distance), min_dist = min(distance), max_distance = max(distance)) %>%
-  left_join(., aggregate(individual ~ location_abbr, data = germplasm_bioclim_data, FUN = n_distinct), by = c("location1" = "location_abbr")) %>%
-  arrange(desc(mean_distance)) %>%
-  select(location = location1, sample_size = individual, mean_pairwise_distance = mean_distance,
-         min_pairwise_distance = min_dist, max_pairwise_distance = max_distance) %>%
+
+# Supplemental Table S02: environmental variable PCA -----------------------
+
+pca_env_max_loadings %>%
+  mutate_if(is.double, format_numbers) %>%
   rename_all(~str_replace_all(., "_", " ") %>% str_to_title()) %>%
-  # Save as a CSV
-  write_csv(x = ., file = file.path(fig_dir, "table_S02_pairwise_genetic_distance.csv"))
+  write_csv(x = ., file = file.path(fig_dir, "table_S02_env_variable_PCA.csv"))
+
 
 
 # Supplemental Table S03: all EAA significant markers ---------------------------------
-
 
 
 # Get the name and distance of the nearest gene annotation for each marker
@@ -1916,34 +1845,35 @@ all_marker_freq2 %>%
   ungroup() %>%
   as.data.frame()
 
-# class      population       mean         min       max
-# 1                F[ST]        Breeding 0.10905901 0.009090909 0.2543860
-# 2                F[ST] NativeSelection 0.08542825 0.034482759 0.1505376
-# 3                F[ST]            Wild 0.10720721 0.090090090 0.1261261
-# 4            geography        Breeding 0.15490431 0.022727273 0.3464912
-# 5            geography NativeSelection 0.22914349 0.091397849 0.4516129
-# 6            geography            Wild 0.20608108 0.103603604 0.4099099
-# 7        precipitation        Breeding 0.21308612 0.000000000 0.3728070
-# 8        precipitation NativeSelection 0.22656656 0.017241379 0.4623656
-# 9        precipitation            Wild 0.20045045 0.090090090 0.4684685
-# 10 principal_component        Breeding 0.27017544 0.048245614 0.6535088
-# 11 principal_component NativeSelection 0.25268817 0.091397849 0.6182796
-# 12 principal_component            Wild 0.19729730 0.103603604 0.4639640
-# 13                soil        Breeding 0.21123263 0.000000000 0.6359649
-# 14                soil NativeSelection 0.21420626 0.034482759 0.5376344
-# 15                soil            Wild 0.17672136 0.094594595 0.4954955
-# 16                 SPA        Breeding 0.42057416 0.140350877 0.6818182
-# 17                 SPA NativeSelection 0.36844642 0.274193548 0.6379310
-# 18                 SPA            Wild 0.39279279 0.234234234 0.5000000
-# 19         temperature        Breeding 0.27901484 0.043859649 0.5131579
-# 20         temperature NativeSelection 0.24648470 0.075268817 0.4731183
-# 21         temperature            Wild 0.22002772 0.094594595 0.4639640
+# class      population      mean         min       max
+# 1                F[ST]        Breeding 0.1410613 0.009615385 0.2500000
+# 2                F[ST] NativeSelection 0.1008395 0.026666667 0.1933333
+# 3                F[ST]            Wild 0.1081081 0.090090090 0.1171171
+# 4            geography        Breeding 0.2674247 0.024038462 0.5462963
+# 5            geography NativeSelection 0.2622575 0.086419753 0.4444444
+# 6            geography            Wild 0.2110682 0.103603604 0.4099099
+# 7        precipitation        Breeding 0.2332906 0.000000000 0.4861111
+# 8        precipitation NativeSelection 0.2955457 0.020000000 0.4814815
+# 9        precipitation            Wild 0.2807207 0.103603604 0.4594595
+# 10 principal_component        Breeding 0.2329569 0.028846154 0.6388889
+# 11 principal_component NativeSelection 0.2649030 0.086419753 0.6234568
+# 12 principal_component            Wild 0.2265122 0.103603604 0.4504505
+# 13                soil        Breeding 0.2216200 0.000000000 0.5092593
+# 14                soil NativeSelection 0.2203304 0.026666667 0.4814815
+# 15                soil            Wild 0.1883943 0.090090090 0.4909910
+# 16                 SPA        Breeding 0.3695869 0.057692308 0.7115385
+# 17                 SPA NativeSelection 0.3839012 0.246666667 0.6666667
+# 18                 SPA            Wild 0.4414414 0.265765766 0.4954955
+# 19         temperature        Breeding 0.3469598 0.046296296 0.8221154
+# 20         temperature NativeSelection 0.2573489 0.074074074 0.4691358
+# 21         temperature            Wild 0.2235657 0.094594595 0.4639640
 
 
 # Markers with the greatest difference between wild and breeding
 all_marker_freq2 %>%
   spread(population, maf) %>%
-  arrange(Breeding - Wild)
+  arrange(Breeding - Wild) %>%
+  as.data.frame()
 
 # These are markers where the MAF in the Wild population is greater
 # than that in the Breeding population
@@ -1988,7 +1918,23 @@ all_marker_freq2 %>%
 # 37            geography         latitude  S12_9381253 4.3612437 0.136363636      0.22988506 0.16666667
 # 38        precipitation            bio15 S09_25633368 4.6274152 0.118181818      0.11494253 0.14414414
 
+# How many markers have elevated MAF in breeding compared to Wild?
+all_marker_freq2 %>%
+  spread(population, maf) %>%
+  filter(! class %in% c("F[ST]", "SPA")) %>%
+  distinct(marker, Breeding, NativeSelection, Wild) %>%
+  summarize(mafBreed_gt_mafWild = sum(Breeding > Wild),
+            mafNS_gt_mafWild = sum(NativeSelection > Wild))
 
+# mafBreed_gt_mafWild mafNS_gt_mafWild
+#                 30               38
+
+
+# What is the genomewide average?
+all_marker_freq1 %>%
+  summarize(mafBreed_gt_mafWild = sum(Breeding > Wild),
+            mafNS_gt_mafWild = sum(NativeSelection > Wild)) %>%
+  mutate_all(~. / nrow(snp_info))
 
 
 
@@ -2001,15 +1947,23 @@ all_sigmar %>%
   # Format numbers
   mutate_at(vars(Wild, Breeding, NativeSelection), format_numbers) %>%
   # Convert Fst and SPA to their own class; also abbreviate the EAA variables
-  mutate(class = ifelse(variable %in% c("F[ST]", "SPA"), variable, paste0("EAA-", str_to_title(str_sub(variable, 1, 4)))),
-         full_name = ifelse(is.na(full_name), variable, full_name)) %>%
-  select(class, variable = full_name, marker, chrom, pos, score, maf_wild = Wild, maf_native = NativeSelection,
-         maf_improved = Breeding, No._nearby_genes = nNearbyGenes, closest_gene_annotation, alias, distance) %>%
+  mutate(class = ifelse(variable %in% c("F[ST]", "SPA"), variable, paste0("EAA-", str_to_title(str_sub(class, 1, 4)))),
+         full_name = ifelse(is.na(full_name), variable, full_name),
+         alias2 = closest_gene_annotation,
+         closest_gene_annotation = ifelse(is.na(alias), closest_gene_annotation, alias),
+         alias = ifelse(is.na(alias), alias, alias2)) %>%
+  select(class, variable = full_name, marker, chrom, pos, score, maf_wild = Wild, allele_freq_native = NativeSelection,
+         allele_freq_breeding = Breeding, No._nearby_genes = nNearbyGenes, closest_gene_annotation,
+         closest_gene_distance = distance, arabidopsis_homolog = alias) %>%
   mutate(class = fct_inorder(class), variable = fct_relevel(variable, "F[ST]", "SPA", after = Inf)) %>%
   arrange(class, variable, marker, chrom, pos) %>%
-  rename_all(~str_replace_all(., "_", " ") %>% str_to_title()) %>%
+  rename_all(~str_replace_all(., "_", " ") %>% str_to_title() %>% str_replace(., "Maf", "MAF")) %>%
   # Save as a CSV
-  write_csv(x = ., file = file.path(fig_dir, "table_S03_all_significant_markers.csv"))
+  write_csv(x = ., file = file.path(fig_dir, "table_S03_all_significant_markers.csv"), na = "")
+
+
+
+
 
 
 
@@ -2042,18 +1996,12 @@ between_pop_dist <- pairwise_dist_data %>%
   summarize(mean_dist = mean(distance), min_dist = min(distance), max_dist = max(distance),
             range_dist = max_dist - min_dist, .groups = "drop")
 
-# heatmap
-between_pop_dist_mat <- between_pop_dist %>%
-  select(location1, location2, mean_dist) %>%
-  spread(location2, mean_dist) %>%
-  as.data.frame() %>%
-  column_to_rownames("location1") %>%
-  as.matrix()
 
-# Replace NA in upper triangle with non-NA from lower
-between_pop_dist_mat1 <- as.matrix(as.dist(t(between_pop_dist_mat)))
-diag(between_pop_dist_mat1) <- NA
+# Find the mean and range
+mean(between_pop_dist$mean_dist)
 
+between_pop_dist %>%
+  subset((mean_dist == max(mean_dist)) | (mean_dist == min(mean_dist)))
 
 
 
@@ -2081,13 +2029,16 @@ xtabs(~ variable, egwas_sigmar1) %>%
 xtabs(~ marker, egwas_sigmar1) %>%
   sort()
 
-# Breakdown by variable type
+# Total number of variables per class with associations
 egwas_sigmar1 %>%
   distinct(variable) %>%
   left_join(., eaa_environmental_vars) %>%
   xtabs(~ class, .)
 
-xtabs(~ class, eaa_environmental_vars)
+# Total number of markers per class
+egwas_sigmar1 %>%
+  left_join(., eaa_environmental_vars) %>%
+  xtabs(~ class, .)
 
 
 ## Overlap of Fst and egwas snps
@@ -2099,9 +2050,15 @@ eaa_marker_fst <- global_marker_fst %>%
 
 mean(global_marker_fst$Fst)
 sd(global_marker_fst$Fst)
+range(global_marker_fst$Fst)
 
 mean(eaa_marker_fst$Fst)
 sd(eaa_marker_fst$Fst)
+
+# SPA mean and range
+median(spa_out$spa_score)
+sd(spa_out$spa_score)
+range(spa_out$spa_score)
 
 # Compare distributions
 (mw_test_out <- wilcox.test(x = eaa_marker_fst$Fst, y = global_marker_fst$Fst, conf.int = T))
@@ -2161,24 +2118,63 @@ soil_correlations <- eaa_environmental_data %>%
 mean(soil_correlations$cor_top_sub)
 
 
-## Correlate population structure with environmental variables
+## Compare the MAF of EAA SNPs and genomewide SNPs
 
-pca_bioclim_data <- pca_tidy %>%
-  select(individual, PC1, PC2, PC3) %>%
-  rename_at(vars(-individual), ~paste0("SNP_", .)) %>%
-  full_join(., germplasm_bioclim_data)
+all_marker_maf <- all_marker_freq %>%
+  filter(category == "Wild") %>%
+  mutate(maf = pmin(ref_allele_freq, 1 - ref_allele_freq))
 
-# Correlate
-pca_bioclim_data %>%
-  gather(variable, value, all_of(eaa_environmental_vars$variable)) %>%
-  group_by(variable) %>%
-  summarize_at(vars(contains("SNP_PC")), ~list(test = cor.test(., value))) %>%
-  gather(snp_pc, test, contains("SNP_PC")) %>%
-  mutate(correlation = map_dbl(test, "estimate"),
-         p_value = map_dbl(test, "p.value")) %>%
-  select(-test) %>%
-  arrange(desc(abs(correlation))) %>%
-  as.data.frame()
+eaa_snp_maf <- subset(all_marker_maf, marker %in% unique(egwas_sigmar$marker), maf, drop = TRUE)
+hist(eaa_snp_maf)
+
+genomewide_snp_maf <- all_marker_maf$maf
+hist(genomewide_snp_maf)
+
+# Compare means
+c(mean = mean(eaa_snp_maf), sd = sd(eaa_snp_maf))
+#      mean        sd
+# 0.2217718 0.1173792
+
+c(mean = mean(genomewide_snp_maf), sd = sd(genomewide_snp_maf))
+
+# mean        sd
+# 0.2573435 0.1225398
+
+wilcox.test(x = eaa_snp_maf, y = genomewide_snp_maf)
+
+geno_mat_wild1_df <- rownames_to_column(as.data.frame(geno_mat_wild1 + 1), "individual")
+
+wild_pop_marker_freq <- geno_mat_wild1_df %>%
+  gather(marker, genotype, -individual) %>%
+  left_join(., select(germplasm_bioclim_data, individual, location_abbr), by = "individual") %>%
+  group_by(marker, location_abbr) %>%
+  do({
+    df <- .
+    freq <- mean(df$genotype) / 2
+    maf <- pmin(freq, 1 - freq)
+    tibble(maf = maf)
+  }) %>% ungroup()
+
+
+# Calculate the number of populations in which each marker is segregating
+wild_nSegPop <- wild_pop_marker_freq %>%
+  group_by(marker) %>%
+  summarize(nSegPop = sum(maf > 0))
+
+eaa_nSegPop <- subset(wild_nSegPop, marker %in% unique(egwas_sigmar$marker), nSegPop, drop = TRUE)
+genomewide_nSegPop <- wild_nSegPop$nSegPop
+
+mean(eaa_nSegPop)
+mean(genomewide_nSegPop)
+
+wilcox.test(x = eaa_nSegPop, y = genomewide_nSegPop)
+
+
+
+## Genetic diversity basic stats
+fst_basic_stats$overall
+
+
 
 
 

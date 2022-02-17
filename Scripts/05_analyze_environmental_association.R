@@ -20,7 +20,7 @@ library(cowplot)
 source("startup.R")
 
 # FDR threshold
-fdr_level <- 0.20
+fdr_thresh <- 0.20
 
 
 # Read in the base data
@@ -99,14 +99,19 @@ gwas_out_best_model <- gwas_out %>% filter(model == "model2")
 # Extract the significant markers based on FDR
 egwas_sigmar <- eaa_gwas_sigmar
 
+# Number of total associations
+nrow(egwas_sigmar)
+
+# 126
+
 # Number of unique markers
 n_distinct(egwas_sigmar$marker)
 
-# 55
+# 60
 
 n_distinct(egwas_sigmar$variable)
 
-# 28
+# 34
 
 
 # Number of unique markers per variable
@@ -116,7 +121,7 @@ egwas_sigmar %>%
   xtabs(~ full_name, .) %>%
   sort()
 
-# 1 - 13
+# 1 - 9
 
 # Number of variables per marker
 egwas_sigmar %>%
@@ -128,19 +133,21 @@ egwas_sigmar %>%
 # 1 - 8
 
 # Number of markers per variable class
-egwas_sigmar %>%
+egwas_sigmar_cat <- egwas_sigmar %>%
   left_join(., eaa_environmental_vars) %>%
-  subset(variable %in% env_variables_of_interest) %>%
+  subset(variable %in% env_variables_of_interest)
+
+egwas_sigmar_cat %>%
   group_by(class, variable) %>%
   summarize(nSigMar = n()) %>%
   summarize(nVariable = n_distinct(variable), nSigMar = sum(nSigMar))
 
 # class               nVariable nSigMar
-# 1 geography                   1       4
-# 2 precipitation               3      20
-# 3 principal_component         2       6
-# 4 soil                       15      56
-# 5 temperature                 7      13
+# 1 geography                   3       7
+# 2 precipitation               7      25
+# 3 principal_component         2       7
+# 4 soil                       15      68
+# 5 temperature                 7      19
 
 
 # Number of unique markers
@@ -198,6 +205,7 @@ allele_colors <- setNames(neyhart_palette("umn2")[3:4], c("ref_allele", "alt_all
 # Read in the SPA results
 spa_results <- spa_out
 
+
 # Get the 1% quantile of spa scores
 spa_scores_q001 <- quantile(spa_results$spa_score, 0.999)
 
@@ -222,9 +230,11 @@ eaa_gwas_spa_scores <- egwas_sigmar %>%
   left_join(., select(spa_results, marker, spa_score))
 
 # How many of these are above the threshold?
-mean(eaa_gwas_spa_scores$spa_score >= spa_scores_q001)
+sum(eaa_gwas_spa_scores$spa_score >= spa_scores_q001)
 
-# Zero
+# Just 1
+#
+subset(eaa_gwas_spa_scores, spa_score >= spa_scores_q001)
 
 # Arrange in descending spa score order
 eaa_gwas_spa_scores %>%
@@ -235,6 +245,12 @@ eaa_gwas_spa_scores %>%
 
 # Average spa score of GWAS hits
 gwas_mean_spa <- mean(eaa_gwas_spa_scores$spa_score)
+sd(eaa_gwas_spa_scores$spa_score)
+
+# Mean and SD of all marker SPA scores
+mean(spa_out$spa_score)
+sd(spa_out$spa_score)
+
 hist(eaa_gwas_spa_scores$spa_score)
 # Number of unique egwas markers
 n_eaa_markers <- length(eaa_gwas_spa_scores$spa_score)
@@ -243,6 +259,8 @@ n_eaa_markers <- length(eaa_gwas_spa_scores$spa_score)
 ## Randomly sample the same number of background SNPs as GWAS SNPs and compare
 ## mean SPA scores
 spa_out_nogwas_vec <- subset(x = spa_out, ! marker %in% eaa_gwas_spa_scores$marker, spa_score, drop = TRUE)
+
+
 
 set.seed(209)
 random_snps_spa <- replicate(n = 10000, mean(sample(x = spa_out_nogwas_vec, size = n_eaa_markers)))
@@ -253,6 +271,7 @@ hist(random_snps_spa, breaks = 50); abline(v = gwas_mean_spa, col = "blue")
 
 wilcox.test(x = eaa_gwas_spa_scores$spa_score, y = spa_out_nogwas_vec)
 
+# P = 0.01345
 
 # Save this as a figure
 g_random_eaa_spa <- ggplot(data = NULL, aes(x = random_snps_spa)) +
@@ -288,18 +307,21 @@ eaa_gwas_fst <- eaa_gwas_sigmar %>%
 
 # How many of these are above the threshold?
 sum(eaa_gwas_fst$Fst >= fst_q001)
+
+# 2
+
 # Number of unique egwas markers
 n_eaa_markers <- length(eaa_gwas_fst$Fst)
 
 
-# 55
+# 60
 
 # Intersect eaa_gwas markers and Fst outliers
 intersect(fst_outliers$marker, unique(eaa_gwas_sigmar$marker))
 
-# 4 markers overlap
+# 2 markers overlap
 
-# Arrange in descending spa score order
+# Arrange in descending Fst order
 eaa_gwas_fst %>%
   arrange(desc(Fst)) %>%
   left_join(., egwas_sigmar) %>%
@@ -324,6 +346,8 @@ mean(random_snps_fst >= gwas_mean_fst)
 hist(random_snps_fst, breaks = 50, xlim = range(pretty(c(random_snps_fst, gwas_mean_fst)))); abline(v = gwas_mean_fst, col = "blue")
 
 wilcox.test(x = eaa_gwas_fst$Fst, y = fst_nogwas_vec)
+
+# p-value < 2.2e-16
 
 # Save this as a figure
 g_random_eaa_fst <- ggplot(data = NULL, aes(x = random_snps_fst)) +
@@ -416,10 +440,7 @@ all_sigmar_nearby_annotation <- all_sigmars %>%
 
 
 # Iterate over all markers
-all_markers_nearby_annotation <- all_sigmars %>%
-  distinct(marker) %>%
-  # Use this to subset remaining markers
-  anti_join(snp_info, .) %>%
+all_markers_nearby_annotation <- snp_info %>%
   group_by(marker) %>%
   do({
     snp_info_i <- .
@@ -471,7 +492,6 @@ all_markers_nearby_annotation %>%
   prop.table()
 
 # No difference in proportions
-
 
 
 

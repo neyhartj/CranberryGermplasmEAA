@@ -14,7 +14,7 @@ pedbase="Data/wild_cranberry_cleaned_genotypes_filter3"
 locfile="Data/wild_cranberry_spa_location_input.txt"
 
 # Path to the SPA software
-spa="../../../../../Software/spa/spa.exe"
+spa="../../../Software/spa/spa.exe"
 
 
 # Run spa

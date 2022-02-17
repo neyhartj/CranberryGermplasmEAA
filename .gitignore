@@ -8,5 +8,6 @@ Figures
 Results
 README.Rmd
 environment
-Data
-Scripts/commonGardenValidation/
+Data/*
+!Data/README.md
+Scripts/OtherScripts/

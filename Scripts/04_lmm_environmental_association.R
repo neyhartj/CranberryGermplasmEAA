@@ -262,7 +262,7 @@ ggsave(filename = "egwas_qqplots.jpg", plot = qq_plots, path = fig_dir,
 eaa_gwas_sigmar <- gwas_out %>%
   filter(model == "model2") %>%
   split(.$variable) %>%
-  map_df(~filter(.x, p_value <= sommer:::fdr(p_value, fdr.level = fdr_level)$fdr.10))
+  map_df(~filter(.x, p_value <= sommer:::fdr(p_value, fdr.level = fdr_thresh)$fdr.10))
 
 
 
@@ -273,7 +273,7 @@ mlm_out_list <- list()
 for (vari in unique(eaa_gwas_sigmar$variable)) {
 
   # Get the number of PCs and covariates
-  terms <- subset(egwas_models_df, model == best_model)
+  terms <- subset(egwas_models_df, model == "model2")
   nPCs <- terms$PCs
   covariates <- terms$covariates[[1]]
 
