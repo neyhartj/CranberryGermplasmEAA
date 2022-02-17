@@ -17,17 +17,6 @@ library(scatterpie)
 library(ggrepel)
 library(khroma)
 
-# Load the startup script
-source("startup.R")
-
-# Set directories
-cran_dir <- strsplit(proj_dir, "/")[[1]] %>%
-  {.[seq_len(which(. == "CranberryLab"))]} %>%
-  paste0(collapse = "/")
-
-# Directory for environmental data
-env_dir <- file.path(cran_dir, "EnvironmentalData")
-
 # Labels for subfigures
 subfigure_labels <- LETTERS
 
@@ -119,7 +108,7 @@ load(file.path(result_dir, "egwas_sigmar_analysis.RData"))
 
 
 # Load the annotation data
-gff_file <- file.path(cran_dir, "Genotyping/ReferenceGenomes/Vaccinium_macrocarpon_BenLear_v2_annotations.gff")
+gff_file <- file.path(data_dir, "Genotyping/ReferenceGenomes/Vaccinium_macrocarpon_BenLear_v2_annotations.gff")
 # read in the GFF file
 cranberry_gff <- ape::read.gff(file = gff_file)
 cran_gene_ranges <- rtracklayer::import.gff3(con = gff_file)
