@@ -1,4 +1,4 @@
-# CranberryGermplasmEAA
+# Germplasm collection environmental association
 #
 # Data preparation
 #
@@ -17,14 +17,6 @@ library(vcfR)
 proj_dir <- here::here()
 data_dir <- file.path(proj_dir, "data")
 
-# CranberryLab directory
-path_split <- str_split(string = proj_dir, pattern = "/")[[1]]
-cran_dir <- paste0(path_split[seq_len(str_which(string = path_split, pattern = "CranberryLab"))], collapse = "/")
-
-# Directory of genotypic data
-geno_dir <- file.path(cran_dir, "Genotyping/MarkerDatabase")
-
-
 ## User parameters
 max_LD_r2 <- 0.99999 # Max LD of any one pair of markers
 max_LD_r2_2 <- 0.90
@@ -37,44 +29,57 @@ max_snp_miss <- 0.7
 
 pop_metadata <- read_csv(file = file.path(data_dir, "population_metadata.csv"))
 
+# Names of wild accessions
+wild_accessions <- subset(pop_metadata, category == "Wild", individual, drop = TRUE)
 
-# Copy marker genotype data -----------------------------------------------
 
 
-# Load the correct marker database
-load(file.path(geno_dir, "phased_marker_genotype_db.RData"))
+# Load marker genotype data -----------------------------------------------
+
+# Load in the phased marker data
+vcf_in <- read.vcfR(file = file.path(data_dir, "wild_cranberry_phased_genotypes.vcf.gz"))
 
 # Data.frame of snp metadata
-snp_info <- phased_geno_hmp %>%
-  select(marker, chrom, pos, alleles)
+snp_info <- vcf_in@fix %>%
+  as_tibble() %>%
+  mutate_all(parse_guess) %>%
+  unite("alleles", REF, ALT, sep = "/") %>%
+  select(marker = ID, chrom = CHROM, pos = POS, alleles)
 
-# Vectors of germplasm from the three different categories in pop_metadata
-germplasm_names_list <- pop_metadata %>%
-  split(.$category) %>%
-  map("individual") %>%
-  map(~intersect(., names(phased_geno_hmp)))
+# Get the GT matrix from the VCF
+gt <- extract.gt(x = vcf_in, element = "GT", convertNA = TRUE)
+# Convert to numeric
+gt1 <- apply(X = gt, MARGIN = 1, FUN = function(snp) {
+  sapply(lapply(gsub(pattern = "\\|", replacement = "+", x = snp), function(x) parse(text = x)), eval)
+})
+
+phased_geno_mat <- gt1
+
+# Create a haplotype array
+phased_geno_haplo_array <- array(data = as.numeric(NA), dim = c(2, nrow(gt), ncol(gt)))
+# Fill in the array
+for (j in seq_len(ncol(gt))) {
+  indiv <- gt[,j,drop = FALSE]
+  snp_split <- str_split(indiv, "\\|")
+  hap1 <- as.numeric(sapply(snp_split, "[[", 1))
+  hap2 <- as.numeric(sapply(snp_split, "[[", 2))
+  # Return a matrix
+  mat <- rbind(haplotype1 = hap1, haplotyp2 = hap2)
+  colnames(mat) <- row.names(indiv)
+  phased_geno_haplo_array[,,j] <- mat
+}
+dimnames(phased_geno_haplo_array) <- list(row.names(mat), colnames(mat), colnames(gt))
+
 
 # Subset the marker data for the wild germplasm
-geno_mat_wild <- phased_geno_mat[germplasm_names_list$Wild,] - 1
-haplo_array_wild <- phased_geno_haplo_array[,,germplasm_names_list$Wild]
-
-geno_mat_native <- phased_geno_mat[germplasm_names_list$NativeSelection,] - 1
-haplo_array_native <- phased_geno_haplo_array[,,germplasm_names_list$NativeSelection]
-
-geno_mat_breeding <- phased_geno_mat[germplasm_names_list$Breeding,] - 1
-haplo_array_breeding <- phased_geno_haplo_array[,,germplasm_names_list$Breeding]
+geno_mat_wild <- phased_geno_mat[wild_accessions,] - 1
+haplo_array_wild <- phased_geno_haplo_array[,,wild_accessions]
 
 # Calculate MAF for each group
 maf_wild <- calc_maf(x = geno_mat_wild)
-maf_native <- calc_maf(x = geno_mat_native)
-maf_breeding <- calc_maf(x = geno_mat_breeding)
 
 # Plot together
-par(mfrow = c(2,2))
 hist(maf_wild, main = "MAF wild accessions - prefilter")
-hist(maf_native, main = "MAF native accessions - prefilter")
-hist(maf_breeding, main = "MAF breeding accessions - prefilter")
-par(mfrow = c(1,1))
 
 
 # Remove identical (i.e. all hets)
@@ -93,10 +98,6 @@ dim(geno_mat_wild_filter1)
 ## Calculate relationship matrices
 # Wild cranberry
 K_wild <- A.mat(X = geno_mat_wild_filter1, min.MAF = 0, max.missing = 1)
-
-# Calculate the K matrix with wild and native selection samples
-K_all <- A.mat(X = rbind(geno_mat_wild_filter1, rbind(geno_mat_native, geno_mat_breeding)[,colnames(geno_mat_wild_filter1)]),
-               min.MAF = 0, max.missing = 1)
 
 
 # Next filter on MAF - this will be used to calculate LD
@@ -126,8 +127,8 @@ maf <- calc_maf(x = geno_mat_wild_filter3); hist(maf, main = "MAF - postfilter")
 haplo_array_wild_filter3 <- haplo_array_wild[,colnames(geno_mat_wild_filter3),]
 
 ## Filter the entire marker genotype matrix and haplotype matrix for these markers
-geno_mat_all_filter3 <- phased_geno_mat[row.names(K_all),colnames(geno_mat_wild_filter3)] - 1
-haplo_array_all_filter3 <- phased_geno_haplo_array[,colnames(geno_mat_wild_filter3),row.names(K_all)]
+geno_mat_all_filter3 <- phased_geno_mat[row.names(K_wild),colnames(geno_mat_wild_filter3)] - 1
+haplo_array_all_filter3 <- phased_geno_haplo_array[,colnames(geno_mat_wild_filter3),row.names(K_wild)]
 
 
 # Rename and save
@@ -147,7 +148,7 @@ snp_info <- snp_info_all %>%
 
 save("geno_mat_wild_filter2", "geno_mat_wild_filter3", "haplo_array_wild_filter3",
      "geno_mat_all_filter3", "haplo_array_all_filter3", "geno_hmp_wild_filter3",
-     "K_wild", "K_all", "snp_info", "snp_info_all", "pop_metadata",
+     "K_wild", "snp_info", "snp_info_all", "pop_metadata",
      file = file.path(data_dir, "population_metadata_and_genotypes.RData"))
 
 

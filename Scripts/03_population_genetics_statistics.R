@@ -1,4 +1,4 @@
-# Germplasm collection environmental association
+# CranberryGermplasmEAA
 #
 # Tests for loci with large changes in allele frequency between wild cranberry and the native selections
 #

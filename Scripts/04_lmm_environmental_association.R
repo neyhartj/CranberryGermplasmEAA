@@ -1,4 +1,4 @@
-# Germplasm collection environmental association
+# CranberryGermplasmEAA
 #
 # Conduct a EAA using the environmental GWAS approach
 #
@@ -11,10 +11,6 @@ library(rrBLUP)
 library(snps)
 library(qvalue)
 library(neyhart)
-
-# Load the startup script
-source("startup.R")
-
 
 # What FDR threshold to use?
 fdr_thresh <- 0.20
@@ -105,65 +101,6 @@ egwas_models_df <- tribble(
 ) %>%
   mutate(npar = map2_dbl(PCs, covariates, ~1 + 1 + .x + length(.y) + 1),
          output = list(NULL))
-
-
-
-
-# # Use LRTs to determine which model to run
-#
-# full_models <- pheno %>%
-#   gather(variable, value, -individual) %>%
-#   group_by(variable) %>%
-#   do({
-#     df <- .
-#     df1 <- left_join(df, K_eigens, by =  "individual") %>%
-#       left_join(., pheno[,c("individual", "latitude", "longitude")], by = "individual")
-#
-#     # Copy egwas_models_df
-#     egwas_models_df1 <- egwas_models_df %>%
-#       select(-output) %>%
-#       mutate(logLik = as.numeric(NA))
-#
-#     # Iterate over models
-#     for (i in seq_len(nrow(egwas_models_df1))) {
-#       nPC <- egwas_models_df1$PCs[i]
-#       covariates <- setdiff(egwas_models_df1$covariates[[i]], unique(df1$variable))
-#       random_terms <- "individual"
-#       fixed_terms <- c("1", covariates, paste0(rep("PC", nPC), seq_len(nPC)))
-#
-#       # Create a model frame
-#       mf <- model.frame(reformulate(c(random_terms, fixed_terms), response = "value"),
-#                         data = df1)
-#       # Model matrices
-#       Z <- model.matrix(~ -1 + individual, mf)
-#       X <- model.matrix(reformulate(fixed_terms), mf)
-#
-#       # Fit the model
-#       fit <- mixed.solve(y = model.response(mf), Z = Z, K = K_wild_use, X = X, method = "ML")
-#       # Return the LL and df
-#       egwas_models_df1$logLik[i] <- fit$LL
-#
-#     }
-#
-#     # Calculate p-values
-#     mod2vmod1 <- pchisq(q = 2 * (egwas_models_df1$logLik[2] - egwas_models_df1$logLik[1]),
-#                         df = egwas_models_df1$npar[2] - egwas_models_df1$npar[1], lower.tail = FALSE)
-#     mod3vmod1 <- pchisq(q = 2 * (egwas_models_df1$logLik[3] - egwas_models_df1$logLik[1]),
-#                         df = egwas_models_df1$npar[3] - egwas_models_df1$npar[1], lower.tail = FALSE)
-#     mod4vmod2 <- pchisq(q = 2 * (egwas_models_df1$logLik[4] - egwas_models_df1$logLik[2]),
-#                         df = egwas_models_df1$npar[4] - egwas_models_df1$npar[2], lower.tail = FALSE)
-#     mod5vmod3 <- pchisq(q = 2 * (egwas_models_df1$logLik[5] - egwas_models_df1$logLik[3]),
-#                         df = egwas_models_df1$npar[5] - egwas_models_df1$npar[3], lower.tail = FALSE)
-#     mod6vmod4 <- pchisq(q = 2 * (egwas_models_df1$logLik[6] - egwas_models_df1$logLik[4]),
-#                         df = egwas_models_df1$npar[6] - egwas_models_df1$npar[4], lower.tail = FALSE)
-#
-#     egwas_models_df1 %>%
-#       mutate(p_value = c(as.numeric(NA), mod2vmod1, mod3vmod1, mod4vmod2, mod5vmod3, mod6vmod4))
-#
-#   }) %>% ungroup()
-
-
-
 
 
 # Subset to create the pheno data

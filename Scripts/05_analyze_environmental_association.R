@@ -1,4 +1,4 @@
-# Germplasm collection environmental association
+# CranberryGermplasmEAA
 #
 # Analyze environmental association results
 #
@@ -15,9 +15,6 @@ library(LDheatmap)
 library(slider)
 library(patchwork)
 library(cowplot)
-
-# Load the startup script
-source("startup.R")
 
 # FDR threshold
 fdr_thresh <- 0.20
@@ -384,8 +381,7 @@ egwas_score_fst %>%
 
 # Look for gene annotations ------------------------------------------------
 
-gff_file <- file.path(cran_dir, "Genotyping/ReferenceGenomes/Vaccinium_macrocarpon_BenLear_v2_annotations.gff")
-# gff_file <- file.path(data_dir, "/Vaccinium_macrocarpon_BenLear_v2_annotations.gff")
+gff_file <- file.path(data_dir, "/Vaccinium_macrocarpon_BenLear_v2_annotations.gff")
 
 # read in the GFF file
 cranberry_gff <- ape::read.gff(file = gff_file)
@@ -493,69 +489,6 @@ all_markers_nearby_annotation %>%
 
 # No difference in proportions
 
-
-
-# # Search for orthologs ----------------------------------------
-#
-# library(rvest)
-#
-# # For each marker and for each nearby annotation, search for potential
-# # genes
-#
-# nearby_annotation_gene_search <- all_sigmar_nearby_annotation %>%
-#   select(-within_annotations) %>%
-#   unnest(nearby_annotation) %>%
-#   filter(type == "mRNA") %>%
-#   mutate(alias = map_chr(attributes, "Alias"),
-#          alias = str_split(alias, ",") %>% map_chr(~str_subset(., "T1$"))) %>%
-#   distinct(marker, min_distance, alias) %>%
-#   mutate(out = list(NULL))
-#
-# # Start a html session
-# session <- session(url = "https://www.vaccinium.org/search/genes")
-#
-# # Pre-fill the form and add a file
-# search_form_prefill <- html_form(x = session)[[2]] %>%
-#   html_form_set(`analysis[]` = "Vaccinium macrocarpon cv. Ben Lear v1.0 genome sequence",
-#                 feature_name_op = "exactly",
-#                 `files[feature_name_file_inline]` = feature_filename)
-#
-# # Submit the form
-# search_form_mega_results <- html_form_submit(form = search_form_prefill)
-#
-#
-# # Iterate over the above data.frame
-# for (i in seq_len(nrow(nearby_annotation_gene_search))) {
-#   search_i <- nearby_annotation_gene_search$alias[i]
-#
-#   # Fill the form and submit
-#   search_form_results <- search_form_prefill %>%
-#     html_form_set(feature_name = search_i) %>%
-#     html_form_submit()
-#
-#   # Get the search elements
-#   search_elements <- search_form_results %>%
-#     read_html() %>%
-#     html_elements("table") %>%
-#     html_elements("a")
-#
-#   # html search elements
-#   search_link <- html_attr(search_elements, "href")[which(html_text(search_elements) == search_i)]
-#
-#   # Follow this new link
-#   page_i <- session_jump_to(x = session, url = paste0("https://www.vaccinium.org/", search_link))
-#
-#   # Read the HTML tables
-#   page_tables <- html_table(page_i)
-#
-#   # Subset the annotated terms and homology tables
-#   homology_table <- page_tables[[which(map_lgl(page_tables, ~any(names(.) %in% "E-value")))]]
-#   annot_terms_table <- bind_rows(page_tables[map_lgl(page_tables, ~any(names(.) %in% "Definition"))])
-#
-#   # Return these tables
-#   nearby_annotation_gene_search$out[[i]] <- list(homology = homology_table, annot_terms = annot_terms_table)
-#
-# }
 
 
 

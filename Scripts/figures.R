@@ -1,4 +1,4 @@
-# Germplasm collection environmental association
+# CranberryGermplasmEAA
 #
 # Figures and visualization
 #

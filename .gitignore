@@ -11,3 +11,5 @@ environment
 Data/*
 !Data/README.md
 Scripts/OtherScripts/
+*local.*
+startup.R

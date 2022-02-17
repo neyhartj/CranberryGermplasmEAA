@@ -1,4 +1,4 @@
-# Germplasm environmental association
+# CranberryGermplasmEAA
 #
 # Download bioclim data for environmental associations
 #
@@ -12,13 +12,6 @@ library(readxl)
 # Set directories
 data_dir <- here::here("data")
 results_dir <- here::here("results")
-
-# External directories
-# CranberryLab directory
-path_split <- str_split(string = here::here(), pattern = "/")[[1]]
-cran_dir <- paste0(path_split[seq_len(str_which(string = path_split, pattern = "CranberryLab"))], collapse = "/")
-
-env_dir <- file.path(cran_dir, "EnvironmentalData")
 
 # Resolution at which to aggregate soil data (in minutes)
 soil_data_aggr_res <- 2.5
@@ -112,35 +105,34 @@ soil_vars <- setNames(soil_vars_tbl$full_name, soil_vars_tbl$variable)
 # https://github.com/MorrellLAB/Env_Assoc/blob/master/script/GWAS/worldclim.miner3.r
 
 # Get worldclim data, bioclimatic variables at 5 minute resolution (~9 sq km)
-#
-#
-# # This is only to be used once; Use the next command to read in data
-# worldclim_dat <- getData(name = "worldclim", var = "bio", res = "5",
-#                          path = file.path(env_dir, "WorldClim"))
-#
-# # Tmin, tmax, precip
-# worldclim_dat <- getData(name = "worldclim", var = "tmin", res = "5",
-#                          path = file.path(env_dir, "WorldClim"))
-#
-# worldclim_dat <- getData(name = "worldclim", var = "tmean", res = "5",
-#                          path = file.path(env_dir, "WorldClim"))
-#
-# worldclim_dat <- getData(name = "worldclim", var = "tmax", res = "5",
-#                          path = file.path(env_dir, "WorldClim"))
-#
-# worldclim_dat <- getData(name = "worldclim", var = "prec", res = "5",
-#                          path = file.path(env_dir, "WorldClim"))
 
-#
-# download.file(url = "https://biogeo.ucdavis.edu/data/diva/msk_alt/USA_msk_alt.zip",
-#               destfile = file.path(env_dir, "Elevation/USA_msk_alt.zip"))
-# download.file(url = "https://biogeo.ucdavis.edu/data/diva/msk_alt/CAN_msk_alt.zip",
-#               destfile = file.path(env_dir, "Elevation/CAN_msk_alt.zip"))
+
+# This is only to be used once; Use the next command to read in data
+worldclim_dat <- getData(name = "worldclim", var = "bio", res = "5",
+                         path = file.path(data_dir, "WorldClim"))
+
+# Tmin, tmax, precip
+worldclim_dat <- getData(name = "worldclim", var = "tmin", res = "5",
+                         path = file.path(data_dir, "WorldClim"))
+
+worldclim_dat <- getData(name = "worldclim", var = "tmean", res = "5",
+                         path = file.path(data_dir, "WorldClim"))
+
+worldclim_dat <- getData(name = "worldclim", var = "tmax", res = "5",
+                         path = file.path(data_dir, "WorldClim"))
+
+worldclim_dat <- getData(name = "worldclim", var = "prec", res = "5",
+                         path = file.path(data_dir, "WorldClim"))
+
+download.file(url = "https://biogeo.ucdavis.edu/data/diva/msk_alt/USA_msk_alt.zip",
+              destfile = file.path(data_dir, "Elevation/USA_msk_alt.zip"))
+download.file(url = "https://biogeo.ucdavis.edu/data/diva/msk_alt/CAN_msk_alt.zip",
+              destfile = file.path(data_dir, "Elevation/CAN_msk_alt.zip"))
 
 # Read in the elevation data
 usa_alt_data <- getData(name = "alt", country = "USA", download = FALSE, keepzip = TRUE,
-                        path = file.path(env_dir, "Elevation"))
-can_alt_data <- getData(name = "alt", country = "CAN", path = file.path(env_dir, "Elevation"),
+                        path = file.path(data_dir, "Elevation"))
+can_alt_data <- getData(name = "alt", country = "CAN", path = file.path(data_dir, "Elevation"),
                         keepzip = TRUE)
 
 
@@ -150,19 +142,19 @@ alt_data <- raster::merge(x = usa_alt_data[[1]], y = can_alt_data)
 
 # Read in already downloaded worldclim data
 worldclim_dat <- getData(name = "worldclim", download = FALSE, var = "bio", res = "5",
-                         path = file.path(env_dir, "WorldClim"))
+                         path = file.path(data_dir, "WorldClim"))
 
 worldclim_dat_tmin <- getData(name = "worldclim", var = "tmin", res = "5", download = FALSE,
-                              path = file.path(env_dir, "WorldClim"))
+                              path = file.path(data_dir, "WorldClim"))
 
 worldclim_dat_tmean <- getData(name = "worldclim", var = "tmean", res = "5", download = FALSE,
-                               path = file.path(env_dir, "WorldClim"))
+                               path = file.path(data_dir, "WorldClim"))
 
 worldclim_dat_tmax <- getData(name = "worldclim", var = "tmax", res = "5", download = FALSE,
-                              path = file.path(env_dir, "WorldClim"))
+                              path = file.path(data_dir, "WorldClim"))
 
 worldclim_dat_prec <- getData(name = "worldclim", var = "prec", res = "5", download = FALSE,
-                              path = file.path(env_dir, "WorldClim"))
+                              path = file.path(data_dir, "WorldClim"))
 
 
 # Combine all raster stacks
@@ -332,7 +324,7 @@ for (i in seq_len(nrow(soil_var_combs))) {
 
   # Get the whole region as a geotiff
   # Download raster as GeoTIFF (Warning: it can be large!)
-  file.out <- file.path(soil_data_dir, paste0(voi_layer, ".tif"))
+  file.out <- file.path(data_dir, paste0(voi_layer, ".tif"))
   if (file.exists(file.out)) next
 
   gdal_translate(xml.out, file.out,
@@ -344,7 +336,7 @@ for (i in seq_len(nrow(soil_var_combs))) {
 
 ## Extract data from the raster files
 # List the raster files
-raster_files <- list.files(path = soil_data_dir, full.names = TRUE, pattern = ".tif")
+raster_files <- list.files(path = data_dir, full.names = TRUE, pattern = ".tif")
 
 # Iterate over locations and subset the raster
 # Subset data for each coordinate
@@ -555,12 +547,5 @@ eaa_environmental_vars <- eaa_environmental_vars %>%
 save("eaa_environmental_data", "eaa_environmental_vars", "env_variables_of_interest", "pca_env1_loadings_tidy",
      "pca_env_max_loadings",
      file = file.path(data_dir, "germplasm_origin_bioclim_data.RData"))
-
-
-
-# Other unused code -------------------------------------
-
-
-
 
 
