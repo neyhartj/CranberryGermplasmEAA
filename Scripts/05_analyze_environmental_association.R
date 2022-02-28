@@ -16,6 +16,9 @@ library(slider)
 library(patchwork)
 library(cowplot)
 
+# Load the startup script
+source("startup.R")
+
 # FDR threshold
 fdr_thresh <- 0.20
 

@@ -1,12 +1,10 @@
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-# CranberryGermplasmEAA
+# CranberryGermplasmEAA - Data
 
 <!-- badges: start -->
 <!-- badges: end -->
-
-## Data
 
 This directory should contain the starting data for running the
 analysis. Placing the starting data in this directory should be the
@@ -16,4 +14,3 @@ To set up this directory for running the analysis, please follow these
 steps:
 
 1.  Visit the figshare repository and download the data.
-2.  

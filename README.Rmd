@@ -4,11 +4,12 @@ output: github_document
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-```{r, include = FALSE}
+```{r, include = FALSE, message=FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>"
 )
+library(tidyverse)
 ```
 
 # CranberryGermplasmEAA
@@ -16,5 +17,59 @@ knitr::opts_chunk$set(
 <!-- badges: start -->
 <!-- badges: end -->
 
-Code to replicate an environmental association analysis in a wild cranberry germplasm collection.
+## Description
 
+This repository contains information and code for replicating the analyses performed in the article below:
+
+Article Title: Genomic patterns of local adaptation in wild cranberry (*Vaccinium macrocarpon* Ait.)  
+Journal: G3: Genes, Genomes, Genetics (under review)  
+Authors: Jeffrey L. Neyhart, Michael B. Kantar, Juan Zalapa, and Nicholi Vorsa  
+Link to article
+
+
+## Navigation
+
+### Data
+
+Data used in this study will be available from the GSA Figshare portal.
+
+### Code
+
+Scripts used to complete the analysis and generate figures outlined in the article above are available in the [Scripts subdirectory](https://github.com/neyhartj/CranberryGermplasmEAA/tree/master/Scripts).
+
+Two scripts in this directory are used by all other scripts:
+
+`startup.R` - loads packages, creates directory links, and loads data.  
+`functions.R` - loads additional functions into the environment.
+
+
+## Software/package versions
+
+*R* version `r paste0(version$major, ".", version$minor)` was used to complete analyses in this project.
+
+
+The following packages (with version information) were used to complete this project:
+
+```{r version, warning=FALSE, message=FALSE, echo=FALSE}
+# Scan the source function and all scripts for packages
+packages <- list.files(path = getwd(), full.names = TRUE, pattern = ".R$", recursive = TRUE) %>% 
+  str_subset(string = ., pattern = "OtherScripts|_local", negate = TRUE) %>%
+  map(readLines) %>% 
+  map(~str_subset(., "library\\(|require\\(")) %>% 
+  unlist() %>% 
+  str_subset(., "#", negate = TRUE) %>%
+  str_trim() %>%
+  str_extract("\\(.*\\)") %>% 
+  str_remove_all("\\(|\\)") %>% 
+  unique()
+
+# get descriptions of each package; create a tibble
+package_info <- installed.packages() %>% 
+  as_tibble() %>% 
+  filter(Package %in% packages) %>% 
+  select(package = Package, version = Version) %>%
+  arrange(package)
+
+# Output a table
+knitr::kable(package_info)
+```

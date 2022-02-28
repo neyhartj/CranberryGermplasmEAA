@@ -15,7 +15,7 @@ library(vcfR)
 
 # Project directory
 proj_dir <- here::here()
-data_dir <- file.path(proj_dir, "data")
+data_dir <- file.path(proj_dir, "Data")
 
 ## User parameters
 max_LD_r2 <- 0.99999 # Max LD of any one pair of markers
@@ -27,7 +27,7 @@ max_snp_miss <- 0.7
 
 # Load the population metadata --------------------------------------------
 
-pop_metadata <- read_csv(file = file.path(data_dir, "population_metadata.csv"))
+pop_metadata <- read_csv(file = file.path(data_dir, "population_metadata_public.csv"))
 
 # Names of wild accessions
 wild_accessions <- subset(pop_metadata, category == "Wild", individual, drop = TRUE)

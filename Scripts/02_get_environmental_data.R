@@ -10,8 +10,8 @@ library(readxl)
 
 
 # Set directories
-data_dir <- here::here("data")
-results_dir <- here::here("results")
+data_dir <- here::here("Data")
+results_dir <- here::here("Results")
 
 # Resolution at which to aggregate soil data (in minutes)
 soil_data_aggr_res <- 2.5

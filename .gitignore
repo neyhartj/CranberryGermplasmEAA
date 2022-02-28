@@ -11,5 +11,6 @@ environment
 Data/*
 !Data/README.md
 Scripts/OtherScripts/
+Scripts/README.Rmd
 *local.*
 startup.R
