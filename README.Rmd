@@ -21,10 +21,10 @@ library(tidyverse)
 
 This repository contains information and code for replicating the analyses performed in the article below:
 
-Article Title: Genomic patterns of local adaptation in wild cranberry (*Vaccinium macrocarpon* Ait.)  
-Journal: G3: Genes, Genomes, Genetics (under review)  
+Article Title: Genomic-environmental associations in wild cranberry (*Vaccinium macrocarpon* Ait.)  
+Journal: G3: Genes, Genomes, Genetics  
 Authors: Jeffrey L. Neyhart, Michael B. Kantar, Juan Zalapa, and Nicholi Vorsa  
-Link to article
+Article doi: https://doi.org/10.1093/g3journal/jkac203  
 
 
 ## Navigation

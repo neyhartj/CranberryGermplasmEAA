@@ -11,12 +11,12 @@
 This repository contains information and code for replicating the
 analyses performed in the article below:
 
-Article Title: Genomic patterns of local adaptation in wild cranberry
+Article Title: Genomic-environmental associations in wild cranberry
 (*Vaccinium macrocarpon* Ait.)  
-Journal: G3: Genes, Genomes, Genetics (under review)  
+Journal: G3: Genes, Genomes, Genetics  
 Authors: Jeffrey L. Neyhart, Michael B. Kantar, Juan Zalapa, and Nicholi
 Vorsa  
-Link to article
+Article doi: <https://doi.org/10.1093/g3journal/jkac203>
 
 ## Navigation
 
@@ -45,10 +45,11 @@ this project:
 | package       | version    |
 |:--------------|:-----------|
 | ape           | 5.5        |
-| broom         | 0.7.7      |
+| BGLR          | 1.1.0      |
+| broom         | 1.0.1      |
 | cowplot       | 1.1.1      |
 | gdalUtils     | 2.0.3.2    |
-| GenomicRanges | 1.42.0     |
+| GenomicRanges | 1.49.0     |
 | ggrepel       | 0.9.1      |
 | hierfstat     | 0.5-7      |
 | khroma        | 1.3.0      |
@@ -62,10 +63,10 @@ this project:
 | rrBLUP        | 4.6.1      |
 | scatterpie    | 0.1.4      |
 | sf            | 0.9-8      |
-| slider        | 0.1.4      |
+| slider        | 0.2.2      |
 | snps          | 0.0.0.9000 |
 | snpStats      | 1.40.0     |
-| sommer        | 4.1.3      |
+| sommer        | 4.2.0      |
 | stringr       | 1.4.0      |
 | tidyverse     | 1.3.1      |
 | vcfR          | 1.12.0     |

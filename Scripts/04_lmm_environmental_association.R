@@ -12,6 +12,9 @@ library(snps)
 library(qvalue)
 library(neyhart)
 
+# Load the startup script
+source("startup.R")
+
 # What FDR threshold to use?
 fdr_thresh <- 0.20
 
