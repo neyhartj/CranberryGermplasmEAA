@@ -22,7 +22,8 @@ Article doi: <https://doi.org/10.1093/g3journal/jkac203>
 
 ### Data
 
-Data used in this study will be available from the GSA Figshare portal.
+Data used in this study is available from [this figshare
+repository](https://doi.org/10.25387/g3.20067062).
 
 ### Code
 
